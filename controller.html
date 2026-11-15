@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>借风座舱手柄 · 桌面飞机大战</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-cockpit: #060d1a;
+      --panel-surface: #0f1c30;
+      --panel-border: rgba(56, 189, 248, 0.25);
+      --cyan: #38bdf8;
+      --amber: #fbbf24;
+      --red: #ef4444;
+      --orange: #ea580c;
+      --green: #4ade80;
+      --text-hi: #f8fafc;
+      --text-dim: #94a3b8;
+      --scrollbar-thumb: #38bdf8;
+      --scrollbar-track: #0b172a;
+      --target-size: 28px;
+    }
+
+    @media (pointer: coarse) {
+      :root {
+        --target-size: 44px;
+      }
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      inline-size: 100%;
+      block-size: 100dvh;
+      overflow: hidden;
+      background: var(--bg-cockpit);
+      color: var(--text-hi);
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+      overflow-wrap: anywhere;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      text-wrap: balance;
+    }
+
+    p {
+      margin: 0;
+      text-wrap: pretty;
+    }
+
+    :where(button, select, input:not([type="checkbox"], [type="radio"]), label:has(input[type="checkbox"], input[type="radio"])) {
+      min-block-size: var(--target-size);
+      min-inline-size: var(--target-size);
+    }
+
+    .cockpit-shell {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 0.5rem;
+      inline-size: 100%;
+      block-size: 100dvh;
+      padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+      padding-bottom: max(0.6rem, env(safe-area-inset-bottom, 0px));
+      padding-left: max(0.6rem, env(safe-area-inset-left, 0px));
+      padding-right: max(0.6rem, env(safe-area-inset-right, 0px));
+    }
+
+    /* 1. Top Telemetry & Flight State Header */
+    .cockpit-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      background: var(--panel-surface);
+      border: 1px solid var(--panel-border);
+      border-radius: 0.75rem;
+      padding: 0.32rem 0.55rem;
+    }
+
+    .link-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.38rem;
+      font-size: 0.74rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      min-inline-size: 0;
+    }
+
+    .dot {
+      inline-size: 9px;
+      block-size: 9px;
+      border-radius: 50%;
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+      flex-shrink: 0;
+    }
+
+    .dot.ok {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .top-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+    }
+
+    .mini-btn {
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: rgba(30, 41, 59, 0.75);
+      color: var(--text-hi);
+      border-radius: 0.52rem;
+      padding: 0.22rem 0.48rem;
+      font-size: 0.73rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .mini-btn.active {
+      border-color: var(--cyan);
+      background: rgba(14, 116, 144, 0.5);
+      color: #ffffff;
+    }
+
+    .mini-btn.warn {
+      border-color: var(--amber);
+      background: rgba(180, 83, 9, 0.45);
+      color: #fef3c7;
+    }
+
+    .mini-btn.danger {
+      border-color: rgba(248, 113, 113, 0.5);
+      background: rgba(127, 29, 29, 0.5);
+      color: #fecaca;
+    }
+
+    /* 2. Middle MFD Tactical Radar & Sensor Bay */
+    .mfd-bay {
+      display: grid;
+      grid-template-columns: 108px 1fr;
+      gap: 0.5rem;
+      background: var(--panel-surface);
+      border: 1px solid var(--panel-border);
+      border-radius: 0.85rem;
+      padding: 0.5rem;
+      align-items: stretch;
+    }
+
+    .radar-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.28rem;
+      background: #040b16;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 0.65rem;
+      padding: 0.32rem;
+    }
+
+    #radar-canvas {
+      inline-size: 88px;
+      block-size: 88px;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      display: block;
+    }
+
+    .radar-caption {
+      font-size: 0.65rem;
+      font-family: ui-monospace, monospace;
+      color: var(--cyan);
+      letter-spacing: 0.03em;
+      text-align: center;
+    }
+
+    .sensor-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 0.38rem;
+      min-inline-size: 0;
+    }
+
+    .chapter-line {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #fde047;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .stats-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: ui-monospace, monospace;
+      font-size: clamp(0.73rem, 0.68rem + 0.3vw, 0.86rem);
+    }
+
+    .hp-track {
+      inline-size: 100%;
+      block-size: 6px;
+      background: rgba(2, 6, 23, 0.8);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      margin-top: 0.2rem;
+    }
+
+    .hp-fill {
+      block-size: 100%;
+      inline-size: 100%;
+      background: linear-gradient(90deg, #0ea5e9, #4ade80);
+      transition: inline-size 0.15s ease;
+    }
+
+    .ctrl-mode-row {
+      display: flex;
+      gap: 0.32rem;
+      flex-wrap: wrap;
+    }
+
+    .ctrl-mode-row .mini-btn {
+      flex: 1;
+      text-align: center;
+    }
+
+    /* Wind Gust Mic Bar */
+    .wind-box {
+      display: flex;
+      align-items: center;
+      gap: 0.38rem;
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid rgba(103, 232, 249, 0.25);
+      border-radius: 0.6rem;
+      padding: 0.24rem 0.42rem;
+    }
+
+    #btn-wind {
+      flex: 1;
+      border: 1px solid rgba(103, 232, 249, 0.45);
+      background: rgba(8, 51, 68, 0.75);
+      color: #ecfeff;
+      border-radius: 0.5rem;
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 0.28rem 0.45rem;
+      cursor: pointer;
+    }
+
+    #btn-wind.mic-live {
+      border-color: var(--green);
+      box-shadow: inset 0 0 10px rgba(74, 222, 128, 0.25);
+    }
+
+    .mic-meter {
+      inline-size: 42px;
+      block-size: 14px;
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      flex-shrink: 0;
+    }
+
+    #mic-bar {
+      block-size: 100%;
+      inline-size: 0%;
+      background: linear-gradient(90deg, #38bdf8, #4ade80, #fbbf24);
+      transition: inline-size 0.05s linear;
+    }
+
+    /* 3. Bottom Dual-Thumb Flight & Heavy Weapons Deck */
+    .deck-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.95fr;
+      gap: 0.5rem;
+      min-block-size: 0;
+    }
+
+    .stick-panel {
+      background: var(--panel-surface);
+      border: 1px solid var(--panel-border);
+      border-radius: 0.95rem;
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.38rem;
+    }
+
+    #joystick-zone {
+      position: relative;
+      inline-size: min(100%, 190px);
+      aspect-ratio: 1 / 1;
+      max-block-size: 190px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(14, 116, 144, 0.22) 0%, rgba(2, 6, 23, 0.85) 75%);
+      border: 2px solid rgba(56, 189, 248, 0.36);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #joystick-zone::before,
+    #joystick-zone::after {
+      content: "";
+      position: absolute;
+      background: rgba(56, 189, 248, 0.14);
+      pointer-events: none;
+    }
+
+    #joystick-zone::before {
+      inline-size: 80%;
+      block-size: 1px;
+    }
+
+    #joystick-zone::after {
+      inline-size: 1px;
+      block-size: 80%;
+    }
+
+    #stick-knob {
+      inline-size: 60px;
+      block-size: 60px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #7dd3fc, #0284c7 75%);
+      border: 2px solid #e0f2fe;
+      box-shadow: 0 6px 18px rgba(2, 132, 199, 0.55);
+      pointer-events: none;
+      transform: translate(0px, 0px);
+    }
+
+    .stick-footer {
+      display: flex;
+      gap: 0.38rem;
+      inline-size: 100%;
+    }
+
+    .roll-btn {
+      flex: 1;
+      border: 1px solid rgba(165, 243, 252, 0.4);
+      background: rgba(15, 23, 42, 0.85);
+      color: #a5f3fc;
+      border-radius: 0.6rem;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    /* Right Heavy Weapons Column */
+    .weapons-panel {
+      display: grid;
+      grid-template-rows: 1.15fr 0.85fr;
+      gap: 0.5rem;
+      min-block-size: 0;
+    }
+
+    .railgun-bay {
+      background: var(--panel-surface);
+      border: 1px solid var(--panel-border);
+      border-radius: 0.95rem;
+      padding: 0.48rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.28rem;
+    }
+
+    .weapon-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #bae6fd;
+      text-align: center;
+    }
+
+    #railgun-track {
+      position: relative;
+      inline-size: 66px;
+      flex: 1;
+      min-block-size: 88px;
+      background: linear-gradient(180deg, rgba(2, 6, 23, 0.95), rgba(30, 41, 59, 0.8));
+      border: 2px solid rgba(56, 189, 248, 0.38);
+      border-radius: 999px;
+      padding: 6px;
+      display: flex;
+      justify-content: center;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #railgun-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      block-size: 0%;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(56, 189, 248, 0.35), rgba(249, 115, 22, 0.75));
+      pointer-events: none;
+    }
+
+    #railgun-handle {
+      position: relative;
+      z-index: 2;
+      inline-size: 50px;
+      block-size: 44px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #e2e8f0, #64748b);
+      border: 2px solid #f8fafc;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0f172a;
+      font-size: 0.7rem;
+      font-weight: 800;
+      pointer-events: none;
+      transform: translateY(0px);
+    }
+
+    /* Smart 4-State Primary Action Button (Launch / Resume / Nuke / Relaunch) */
+    #nuke-btn {
+      border: 3px solid #fca5a5;
+      border-radius: 0.95rem;
+      background: radial-gradient(circle at 50% 32%, #f97316, #dc2626 68%, #7f1d1d 100%);
+      color: #ffffff;
+      box-shadow: 0 8px 22px rgba(220, 38, 38, 0.45), inset 0 2px 6px rgba(255, 255, 255, 0.4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.15rem;
+      cursor: pointer;
+      padding: 0.38rem;
+      transition: transform 0.08s ease, filter 0.15s;
+    }
+
+    #nuke-btn.launch-mode {
+      border-color: #fde047;
+      background: radial-gradient(circle at 50% 30%, #38bdf8, #0284c7 65%, #0f766e 100%);
+      box-shadow: 0 8px 22px rgba(2, 132, 199, 0.45), inset 0 2px 6px rgba(255, 255, 255, 0.4);
+    }
+
+    #nuke-btn.resume-mode {
+      border-color: #86efac;
+      background: radial-gradient(circle at 50% 30%, #34d399, #059669 68%, #064e3b 100%);
+      box-shadow: 0 8px 22px rgba(16, 185, 129, 0.42), inset 0 2px 6px rgba(255, 255, 255, 0.4);
+    }
+
+    #nuke-btn:active {
+      transform: scale(0.95);
+    }
+
+    #nuke-btn.empty {
+      filter: grayscale(0.7) brightness(0.75);
+    }
+
+    .nuke-title {
+      font-size: clamp(0.84rem, 0.78rem + 0.4vw, 1.02rem);
+      font-weight: 900;
+      letter-spacing: 0.03em;
+    }
+
+    .nuke-count {
+      font-size: 0.72rem;
+      font-family: ui-monospace, monospace;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 1px 7px;
+      border-radius: 999px;
+      text-align: center;
+    }
+
+    /* Calibration Modal Dialog */
+    dialog {
+      border: 1px solid var(--panel-border);
+      border-radius: 1rem;
+      background: #0c1829;
+      color: var(--text-hi);
+      padding: 0;
+      inline-size: min(26rem, calc(100dvw - 1.25rem));
+      max-block-size: calc(100dvh - 2rem);
+    }
+
+    dialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+
+    dialog:modal {
+      overscroll-behavior: contain;
+    }
+
+    dialog::backdrop {
+      overflow: hidden;
+      overscroll-behavior: contain;
+      background: rgba(2, 6, 18, 0.72);
+      backdrop-filter: blur(4px);
+    }
+
+    .dlg-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    .dlg-body {
+      padding: 0.9rem 1rem 1.1rem;
+      overflow-y: auto;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+
+    @supports not (scrollbar-color: auto) {
+      .dlg-body::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      .dlg-body::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        border-radius: 999px;
+      }
+      .dlg-body::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+    }
+
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+    }
+
+    .slider-group label {
+      display: flex;
+      justify-content: space-between;
+      color: #cbd5e1;
+    }
+
+    input[type="range"] {
+      inline-size: 100%;
+      accent-color: var(--cyan);
+    }
+
+    .toast-tip {
+      font-size: 0.74rem;
+      color: var(--amber);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <main class="cockpit-shell">
+    <!-- 1. Header -->
+    <header class="cockpit-top">
+      <div class="link-chip">
+        <span id="c-dot" class="dot" aria-hidden="true"></span>
+        <span id="c-status">连接大屏中...</span>
+      </div>
+      <div class="top-actions">
+        <button type="button" id="btn-c-pause" class="mini-btn" hidden>⏸ 暂停</button>
+        <button type="button" id="btn-c-stop" class="mini-btn danger" hidden>⏹ 返航</button>
+        <button type="button" id="btn-mode-switch" class="mini-btn">实体压屏</button>
+        <button type="button" id="btn-pure-cam" class="mini-btn" aria-label="切换大屏纯净实拍模式">实拍</button>
+        <button type="button" id="btn-calib" class="mini-btn">校准底座</button>
+      </div>
+    </header>
+
+    <!-- 2. MFD Tactical Radar & Sensors -->
+    <section class="mfd-bay" aria-label="战术雷达与传感器">
+      <div class="radar-card">
+        <canvas id="radar-canvas" width="140" height="140" aria-label="敌机方位雷达"></canvas>
+        <span class="radar-caption" id="wave-label">STANDBY</span>
+      </div>
+
+      <div class="sensor-col">
+        <div>
+          <div class="chapter-line" id="chapter-label">借风计划 · 把玩具放进停机坪</div>
+          <div class="stats-strip">
+            <span id="score-text">0000000</span>
+            <span id="lv-text" style="color:#38bdf8;">火力 Lv.1</span>
+          </div>
+          <div class="hp-track" aria-label="战机护盾">
+            <div id="hp-fill" class="hp-fill"></div>
+          </div>
+        </div>
+
+        <div class="ctrl-mode-row" role="group" aria-label="操控模式选择">
+          <button type="button" id="btn-touch-mode" class="mini-btn active">触屏摇杆</button>
+          <button type="button" id="btn-gyro-mode" class="mini-btn">体感飞行杆</button>
+          <button type="button" id="btn-gyro-zero" class="mini-btn" hidden>归零</button>
+        </div>
+
+        <div class="wind-box">
+          <button type="button" id="btn-wind">💨 吹气 / 点按顺风</button>
+          <div class="mic-meter" title="麦克风风压电平">
+            <div id="mic-bar"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Dual-Thumb Control Deck -->
+    <section class="deck-grid" aria-label="主飞行操控台">
+      <!-- Left: Joystick + Barrel Roll -->
+      <div class="stick-panel">
+        <div id="joystick-zone" role="application" aria-label="全向飞行摇杆">
+          <div id="stick-knob"></div>
+        </div>
+        <div class="stick-footer">
+          <button type="button" id="btn-roll" class="roll-btn">🌀 翻滚躲弹 (后拉手机)</button>
+        </div>
+      </div>
+
+      <!-- Right: Pull-down Railgun Lever + Smart Primary Action Button -->
+      <div class="weapons-panel">
+        <div class="railgun-bay">
+          <span class="weapon-label">⬇ 按住下拉蓄力磁轨炮</span>
+          <div id="railgun-track" role="slider" aria-label="下拉蓄力磁轨炮拉栓" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+            <div id="railgun-fill"></div>
+            <div id="railgun-handle">拉栓</div>
+          </div>
+        </div>
+
+        <button type="button" id="nuke-btn" class="launch-mode">
+          <span class="nuke-title" id="nuke-title">🚀 点火起飞</span>
+          <span class="nuke-count" id="nuke-count">带桌面小家伙升空</span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Physical Toy Rig Calibration Dialog (Automatically pauses Host game while open!) -->
+  <dialog id="calib-dialog" closedby="any" aria-labelledby="calib-title">
+    <div class="dlg-head">
+      <div>
+        <h2 id="calib-title" style="font-size:0.96rem;">万物起飞底座校准</h2>
+        <span style="font-size:0.7rem;color:#fde047;">⏸ 校准期间大屏战局已自动暂停</span>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="mini-btn active" autofocus>完成并继续</button>
+      </form>
+    </div>
+    <div class="dlg-body">
+      <p id="sensor-msg" class="toast-tip">滑动下方尺寸，大屏上的金色停机坪、尾焰与两侧浮游炮会实时贴合你的玩具边缘。</p>
+
+      <div class="preset-grid">
+        <button type="button" class="mini-btn c-preset" data-shape="car" data-w="74" data-l="118">🚗 合金小车</button>
+        <button type="button" class="mini-btn c-preset active" data-shape="jet" data-w="92" data-l="122">✈️ 玩具战机</button>
+        <button type="button" class="mini-btn c-preset" data-shape="jet" data-w="88" data-l="152">📄 折纸飞机</button>
+        <button type="button" class="mini-btn c-preset" data-shape="orb" data-w="68" data-l="68">🧴 瓶盖/橡皮</button>
+      </div>
+
+      <div class="slider-group">
+        <label for="c-width"><span>实物宽度</span><strong id="c-width-val">86 px</strong></label>
+        <input type="range" id="c-width" min="36" max="220" value="86">
+      </div>
+
+      <div class="slider-group">
+        <label for="c-length"><span>实物长度</span><strong id="c-length-val">118 px</strong></label>
+        <input type="range" id="c-length" min="44" max="260" value="118">
+      </div>
+
+      <div class="slider-group">
+        <label for="c-anchor"><span>大屏纵向锚点</span><strong id="c-anchor-val">75%</strong></label>
+        <input type="range" id="c-anchor" min="55" max="85" value="75">
+      </div>
+
+      <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.84rem;">
+        <input type="checkbox" id="c-god">
+        <span>亲子无敌护航（不爆机）</span>
+      </label>
+    </div>
+  </dialog>
+
+  <script src="./js/sound-fx.js"></script>
+  <script src="./js/link-bridge.js"></script>
+  <script src="./js/controller-app.js"></script>
+</body>
+</html>

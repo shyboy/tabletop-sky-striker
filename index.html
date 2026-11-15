@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>借风计划 · 桌面飞机大战（双屏虚实互动版）</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-deep: #071426;
+      --panel-bg: rgba(10, 22, 42, 0.88);
+      --panel-solid: rgba(10, 22, 40, 0.92);
+      --panel-border: rgba(56, 189, 248, 0.34);
+      --accent-cyan: #38bdf8;
+      --accent-amber: #fbbf24;
+      --accent-orange: #ea580c;
+      --accent-green: #4ade80;
+      --text-main: #f8fafc;
+      --text-muted: #cbd5e1;
+      --text-dim: #94a3b8;
+      --scrollbar-thumb: #38bdf8;
+      --scrollbar-track: #0b172a;
+      --target-size: 28px;
+    }
+
+    @media (pointer: coarse) {
+      :root {
+        --target-size: 44px;
+      }
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      inline-size: 100%;
+      block-size: 100dvh;
+      overflow: hidden;
+      background: var(--bg-deep);
+      color: var(--text-main);
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      overflow-wrap: anywhere;
+    }
+
+    h1, h2, h3 {
+      text-wrap: balance;
+      margin: 0;
+    }
+
+    p, li {
+      text-wrap: pretty;
+    }
+
+    :where(button, select, input:not([type="checkbox"], [type="radio"]), label:has(input[type="checkbox"], input[type="radio"])) {
+      min-block-size: var(--target-size);
+      min-inline-size: var(--target-size);
+    }
+
+    /* Accessible themed scrollbars per modern-web-guidance */
+    .themed-scroller {
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    @supports not (scrollbar-color: auto) {
+      .themed-scroller::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      .themed-scroller::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        border-radius: 999px;
+      }
+      .themed-scroller::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+    }
+
+    #stage-wrap {
+      position: relative;
+      inline-size: 100dvw;
+      block-size: 100dvh;
+    }
+
+    #game-canvas {
+      display: block;
+      inline-size: 100%;
+      block-size: 100%;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      cursor: crosshair;
+    }
+
+    /* Top-right floating toolbar */
+    .top-bar {
+      position: fixed;
+      top: max(0.75rem, env(safe-area-inset-top, 0px));
+      right: max(0.75rem, env(safe-area-inset-right, 0px));
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      z-index: 20;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.45rem;
+      align-items: center;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .top-bar > * {
+      pointer-events: auto;
+    }
+
+    body.pure-camera .top-bar,
+    body.inspector-open .top-bar {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    body.pure-camera .top-bar > *,
+    body.inspector-open .top-bar > * {
+      pointer-events: none;
+    }
+
+    #wake-camera-btn {
+      position: fixed;
+      top: max(0.5rem, env(safe-area-inset-top, 0px));
+      right: max(0.5rem, env(safe-area-inset-right, 0px));
+      z-index: 25;
+      display: none;
+      background: rgba(15, 23, 42, 0.24);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      color: rgba(226, 232, 240, 0.65);
+      border-radius: 999px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+
+    body.pure-camera #wake-camera-btn {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .pill-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.38rem;
+      padding: 0.4rem 0.82rem;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: rgba(10, 22, 40, 0.74);
+      backdrop-filter: blur(8px);
+      color: var(--text-main);
+      font-size: clamp(0.76rem, 0.72rem + 0.22vw, 0.9rem);
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.15s, background-color 0.15s, transform 0.1s;
+    }
+
+    .pill-btn:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(14, 34, 62, 0.9);
+    }
+
+    .pill-btn:active {
+      transform: scale(0.97);
+    }
+
+    .pill-btn.primary {
+      border-color: rgba(56, 189, 248, 0.65);
+      background: rgba(14, 116, 144, 0.48);
+    }
+
+    .pill-btn.amber {
+      border-color: rgba(251, 191, 36, 0.65);
+      background: rgba(146, 64, 14, 0.44);
+      color: #fef3c7;
+    }
+
+    .pill-btn.warn {
+      border-color: rgba(251, 191, 36, 0.65);
+      background: rgba(180, 83, 9, 0.45);
+      color: #fef3c7;
+    }
+
+    .pill-btn.danger {
+      border-color: rgba(248, 113, 113, 0.55);
+      background: rgba(127, 29, 29, 0.48);
+      color: #fee2e2;
+    }
+
+    .status-dot {
+      inline-size: 8px;
+      block-size: 8px;
+      border-radius: 50%;
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+    }
+
+    .status-dot.connected {
+      background: var(--accent-green);
+      box-shadow: 0 0 10px var(--accent-green);
+    }
+
+    /* ===================== TITLE SCREEN OVERLAY ===================== */
+    #title-overlay {
+      position: fixed;
+      top: clamp(3.3rem, 6.2dvh, 4.8rem);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 14;
+      inline-size: min(44rem, calc(100dvw - 1.5rem));
+      max-block-size: min(56dvh, 31rem);
+      overflow-y: auto;
+      background: linear-gradient(180deg, rgba(8, 20, 38, 0.84) 0%, rgba(10, 25, 48, 0.76) 100%);
+      border: 1px solid rgba(125, 211, 252, 0.36);
+      border-radius: 1.25rem;
+      box-shadow: 0 20px 50px rgba(3, 10, 24, 0.42);
+      backdrop-filter: blur(12px);
+      padding: clamp(0.95rem, 2dvh, 1.4rem) clamp(1rem, 2.5vw, 1.65rem);
+      display: flex;
+      flex-direction: column;
+      gap: clamp(0.6rem, 1.4dvh, 0.9rem);
+    }
+
+    .story-kicker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--accent-amber);
+      text-transform: uppercase;
+    }
+
+    .title-heading {
+      font-size: clamp(1.35rem, 1.1rem + 1.2vw, 2rem);
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      color: #ffffff;
+      line-height: 1.2;
+    }
+
+    .story-copy {
+      margin: 0;
+      font-size: clamp(0.84rem, 0.8rem + 0.22vw, 0.96rem);
+      line-height: 1.62;
+      color: #e2e8f0;
+    }
+
+    .story-copy strong {
+      color: #fde047;
+      font-weight: 700;
+    }
+
+    .chapter-route {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      font-size: 0.74rem;
+      color: #bae6fd;
+    }
+
+    .route-step {
+      background: rgba(14, 116, 144, 0.28);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 999px;
+      padding: 0.18rem 0.62rem;
+    }
+
+    .title-mode-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .mode-card-btn {
+      flex: 1;
+      min-inline-size: 11rem;
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: rgba(15, 23, 42, 0.58);
+      color: #cbd5e1;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+
+    .mode-card-btn strong {
+      font-size: 0.84rem;
+      color: #f8fafc;
+    }
+
+    .mode-card-btn span {
+      font-size: 0.73rem;
+      color: var(--text-dim);
+    }
+
+    .mode-card-btn.active {
+      border-color: var(--accent-amber);
+      background: rgba(251, 191, 36, 0.14);
+    }
+
+    .mode-card-btn.active strong {
+      color: #fde047;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      align-items: center;
+    }
+
+    .cta-launch {
+      flex: 1.4;
+      min-inline-size: 10.5rem;
+      padding: 0.66rem 1.15rem;
+      border-radius: 0.85rem;
+      border: 1px solid #fde047;
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 55%, #0f766e 100%);
+      box-shadow: 0 10px 24px rgba(2, 132, 199, 0.4);
+      color: #ffffff;
+      font-size: clamp(0.9rem, 0.85rem + 0.3vw, 1.04rem);
+      font-weight: 800;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+    }
+
+    .cta-launch:hover {
+      filter: brightness(1.08);
+    }
+
+    .cta-secondary {
+      flex: 1;
+      min-inline-size: 8.8rem;
+      padding: 0.64rem 0.9rem;
+      border-radius: 0.85rem;
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      background: rgba(15, 23, 42, 0.76);
+      color: #e0f2fe;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .cta-secondary:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(30, 41, 59, 0.88);
+    }
+
+    .helipad-guide {
+      margin: 0;
+      text-align: center;
+      font-size: 0.76rem;
+      color: #fde047;
+      opacity: 0.92;
+    }
+
+    /* ===================== PAUSE & GAMEOVER OVERLAYS ===================== */
+    .state-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 16;
+      background: rgba(4, 12, 26, 0.56);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .state-card {
+      inline-size: min(30rem, calc(100dvw - 2rem));
+      background: var(--panel-solid);
+      border: 1px solid var(--panel-border);
+      border-radius: 1.2rem;
+      padding: 1.35rem 1.5rem;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+
+    .state-badge {
+      align-self: flex-start;
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(251, 191, 36, 0.15);
+      border: 1px solid rgba(251, 191, 36, 0.4);
+      color: var(--accent-amber);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.55rem;
+    }
+
+    .stat-cell {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 0.7rem;
+      padding: 0.55rem 0.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .stat-cell span {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+
+    .stat-cell strong {
+      font-size: 1rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #f8fafc;
+    }
+
+    .action-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .btn-block {
+      inline-size: 100%;
+      padding: 0.65rem 1rem;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(30, 41, 59, 0.8);
+      color: var(--text-main);
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-block.primary {
+      border-color: rgba(56, 189, 248, 0.75);
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: #ffffff;
+    }
+
+    .btn-block.danger {
+      border-color: rgba(248, 113, 113, 0.45);
+      background: rgba(127, 29, 29, 0.42);
+      color: #fecaca;
+    }
+
+    #remote-calib-banner {
+      position: fixed;
+      top: clamp(3.4rem, 7dvh, 4.8rem);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      background: rgba(10, 22, 42, 0.86);
+      border: 1px solid rgba(251, 191, 36, 0.6);
+      color: #fde047;
+      padding: 0.45rem 1rem;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+
+    /* ===================== SIDE-DOCKED SEE-THROUGH INSPECTOR DIALOG ===================== */
+    /* Docked to left (or right) on desktop/tablet, or top half on narrow portrait screens,
+       with a ZERO-BLUR transparent backdrop so the center 50% golden helipad is 100% unobstructed! */
+    dialog#setup-dialog {
+      margin: 0;
+      position: fixed;
+      top: max(0.75rem, env(safe-area-inset-top, 0px));
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      right: auto;
+      bottom: auto;
+      inline-size: min(22.5rem, 36dvw);
+      max-inline-size: calc(100dvw - 1.5rem);
+      max-block-size: calc(100dvh - 1.5rem);
+      border: 1px solid var(--panel-border);
+      border-radius: 1.05rem;
+      background: rgba(8, 20, 38, 0.9);
+      backdrop-filter: blur(10px);
+      color: var(--text-main);
+      padding: 0;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      transition: opacity 0.15s ease;
+    }
+
+    dialog#setup-dialog.dock-right {
+      left: auto;
+      right: max(0.75rem, env(safe-area-inset-right, 0px));
+    }
+
+    dialog#setup-dialog.scrubbing {
+      opacity: 0.82;
+    }
+
+    @media (max-width: 760px) {
+      dialog#setup-dialog,
+      dialog#setup-dialog.dock-right {
+        top: max(0.5rem, env(safe-area-inset-top, 0px));
+        left: 0.5rem;
+        right: 0.5rem;
+        inline-size: auto;
+        max-block-size: 46dvh;
+      }
+    }
+
+    dialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+
+    dialog:modal {
+      overscroll-behavior: contain;
+    }
+
+    /* Transparent backdrop: preserves click-outside light-dismiss & Esc WITHOUT blurring or darkening the helipad! */
+    dialog#setup-dialog::backdrop {
+      overflow: hidden;
+      overscroll-behavior: contain;
+      background-color: transparent;
+      backdrop-filter: none;
+    }
+
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.7rem 0.9rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .dialog-header-left {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.45rem;
+      min-inline-size: 0;
+    }
+
+    .dialog-header h2 {
+      font-size: 0.96rem;
+      color: #f8fafc;
+    }
+
+    .pause-pill {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #fde047;
+      background: rgba(251, 191, 36, 0.15);
+      border: 1px solid rgba(251, 191, 36, 0.4);
+      border-radius: 999px;
+      padding: 0.12rem 0.48rem;
+    }
+
+    .header-btns {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .close-btn {
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(30, 41, 59, 0.78);
+      color: var(--text-main);
+      border-radius: 0.52rem;
+      padding: 0.28rem 0.62rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .close-btn:hover {
+      border-color: var(--accent-cyan);
+    }
+
+    /* Inspector Tabs (Calibration vs Mobile QR) */
+    .inspector-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.35rem;
+      padding: 0.55rem 0.9rem 0;
+    }
+
+    .tab-btn {
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      background: rgba(15, 23, 42, 0.65);
+      color: #94a3b8;
+      border-radius: 0.6rem;
+      padding: 0.4rem 0.5rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tab-btn.active {
+      border-color: var(--accent-amber);
+      background: rgba(251, 191, 36, 0.16);
+      color: #fde047;
+    }
+
+    .dialog-body {
+      overflow-y: auto;
+      padding: 0.8rem 0.9rem 0.95rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .tab-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 0.72rem;
+    }
+
+    .live-preview-banner {
+      background: rgba(14, 116, 144, 0.24);
+      border: 1px solid rgba(56, 189, 248, 0.32);
+      border-radius: 0.6rem;
+      padding: 0.42rem 0.65rem;
+      font-size: 0.75rem;
+      color: #bae6fd;
+      line-height: 1.4;
+    }
+
+    .qr-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.7rem;
+      background: rgba(2, 6, 23, 0.55);
+      border-radius: 0.75rem;
+    }
+
+    #qr-box {
+      inline-size: 164px;
+      aspect-ratio: 1 / 1;
+      background: #ffffff;
+      border-radius: 0.6rem;
+      padding: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #qr-box svg {
+      inline-size: 100%;
+      block-size: 100%;
+      display: block;
+    }
+
+    .room-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .room-badge {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.8rem;
+      color: var(--accent-amber);
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      padding: 0.16rem 0.55rem;
+      border-radius: 999px;
+    }
+
+    .url-row {
+      display: flex;
+      gap: 0.38rem;
+      inline-size: 100%;
+    }
+
+    .url-input {
+      flex: 1;
+      min-inline-size: 0;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 0.5rem;
+      color: #cbd5e1;
+      padding: 0.32rem 0.5rem;
+      font-size: 0.74rem;
+      font-family: ui-monospace, monospace;
+    }
+
+    .seg-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+    }
+
+    .seg-btn {
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      background: rgba(30, 41, 59, 0.65);
+      color: #cbd5e1;
+      border-radius: 0.55rem;
+      padding: 0.38rem 0.5rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .seg-btn.active {
+      border-color: var(--accent-cyan);
+      background: rgba(14, 116, 144, 0.48);
+      color: #ffffff;
+    }
+
+    .field-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.24rem;
+    }
+
+    .field-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+      color: #e2e8f0;
+    }
+
+    .field-label strong {
+      color: #fde047;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    input[type="range"] {
+      inline-size: 100%;
+      accent-color: var(--accent-cyan);
+      cursor: pointer;
+    }
+
+    select {
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 0.5rem;
+      color: var(--text-main);
+      padding: 0.35rem 0.5rem;
+      font-size: 0.78rem;
+    }
+
+    .hint-note {
+      margin: 0;
+      font-size: 0.74rem;
+      line-height: 1.45;
+      color: var(--text-dim);
+    }
+
+    .check-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.82rem;
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+
+    .kbd-box {
+      background: rgba(2, 6, 23, 0.55);
+      border-radius: 0.6rem;
+      padding: 0.52rem 0.68rem;
+      font-size: 0.73rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    kbd {
+      background: rgba(51, 65, 85, 0.75);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: #f8fafc;
+      font-size: 0.7rem;
+    }
+
+    @media (max-width: 760px) {
+      #btn-dock-side {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage-wrap">
+    <canvas id="game-canvas" aria-label="借风计划桌面飞机大战主战场"></canvas>
+
+    <!-- Floating Quick Toolbar -->
+    <div class="top-bar" role="toolbar" aria-label="战场快捷控制">
+      <button type="button" id="btn-open-calib" class="pill-btn amber" aria-label="打开侧边底座尺寸校准面板">
+        🎯 校准底座
+      </button>
+      <button type="button" id="btn-open-setup" class="pill-btn primary">
+        <span id="conn-dot" class="status-dot" aria-hidden="true"></span>
+        <span id="conn-text">手机扫码遥控</span>
+      </button>
+      <button type="button" id="btn-pause" class="pill-btn" hidden aria-label="暂停或继续航程">
+        ⏸ 暂停 (P)
+      </button>
+      <button type="button" id="btn-stop" class="pill-btn danger" hidden aria-label="停止当前航程并返回主界面">
+        ⏹ 停止返航
+      </button>
+      <button type="button" id="btn-toggle-mode" class="pill-btn" aria-label="切换实体压屏模式与纯屏虚拟战机模式">
+        <span id="mode-btn-label">模式：实体压屏 (动背景)</span>
+      </button>
+      <button type="button" id="btn-sky-theme" class="pill-btn" aria-label="切换天空光影主题">
+        背景：随剧情
+      </button>
+      <button type="button" id="btn-pure-camera" class="pill-btn" aria-label="开启实拍纯净画面（隐藏界面文字）">
+        实拍纯净
+      </button>
+      <button type="button" id="btn-mute" class="pill-btn" aria-label="切换音效开关">
+        音效：开
+      </button>
+    </div>
+
+    <button type="button" id="wake-camera-btn" aria-label="退出实拍纯净模式并恢复工具栏">
+      显示控制栏 (H)
+    </button>
+
+    <!-- 1. Main Title & Story Screen -->
+    <section id="title-overlay" class="themed-scroller" aria-labelledby="main-story-title">
+      <div class="story-kicker">
+        <span>PROJECT BORROWED WIND · 双屏虚实互动飞行</span>
+        <span id="title-conn-pill">等待手机座舱或直接键鼠起飞</span>
+      </div>
+
+      <h1 id="main-story-title" class="title-heading">借风计划 · 桌面飞机大战</h1>
+
+      <p class="story-copy">
+        书桌上的合金小车、折纸飞机和旧橡皮自己没有引擎。今晚把屏幕变成一扇通往云海的天窗——<strong>既然它自己飞不动，那就让整片云层、海岛与晚霞替它往后奔跑。</strong>拿起手机当无线操纵杆，你对着麦克风吹出的每一口气，都是托起它的八级顺风。
+      </p>
+
+      <div class="chapter-route" aria-label="三幕航段">
+        <span class="route-step">Ⅰ 晴空借风 · 冲破灰雾封锁</span>
+        <span class="route-step">Ⅱ 暮色穿云 · 晚霞风暴突围</span>
+        <span class="route-step">Ⅲ 星海灯塔 · 守住云端天窗</span>
+      </div>
+
+      <div class="title-mode-row" role="group" aria-label="选择起飞方式">
+        <button type="button" class="mode-card-btn active" data-mode="tabletop">
+          <strong>🛸 实体压屏（推荐 · 动背景）</strong>
+          <span>把真小车 / 纸飞机摆进下方金色停机坪</span>
+        </button>
+        <button type="button" class="mode-card-btn" data-mode="arcade">
+          <strong>✈️ 纯屏街机（无实物 · 动战机）</strong>
+          <span>手边没玩具也能直接驾驶虚拟战机</span>
+        </button>
+      </div>
+
+      <div class="cta-row">
+        <button type="button" id="btn-start-mission" class="cta-launch">
+          🚀 点火起飞 (Enter)
+        </button>
+        <button type="button" id="btn-title-calib" class="cta-secondary">
+          🎯 边看边调底座尺寸
+        </button>
+        <button type="button" id="btn-title-setup" class="cta-secondary">
+          📱 手机扫码遥控
+        </button>
+      </div>
+
+      <p class="helipad-guide" id="title-helipad-tip">
+        ⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内
+      </p>
+    </section>
+
+    <!-- Non-blocking notice when mobile controller opens calibration drawer -->
+    <div id="remote-calib-banner" hidden>
+      ⏸ 手机座舱正在校准实物底座 · 战场已自动悬停
+    </div>
+
+    <!-- 2. Manual Pause Overlay -->
+    <section id="pause-overlay" class="state-overlay" hidden aria-labelledby="pause-heading">
+      <div class="state-card">
+        <span class="state-badge" id="pause-chapter-badge">第一航段 · 晴空借风</span>
+        <h2 id="pause-heading">⏸ 航程已悬停</h2>
+        <p class="story-copy" id="pause-subtitle" style="font-size:0.86rem;">
+          云海已在机翼下静止。你可以扶正屏幕上的小家伙，或者调整底座尺寸后再出发。
+        </p>
+
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <span>借风里程</span>
+            <strong id="pause-dist">0.0 km</strong>
+          </div>
+          <div class="stat-cell">
+            <span>当前得分</span>
+            <strong id="pause-score">0</strong>
+          </div>
+          <div class="stat-cell">
+            <span>护盾完整度</span>
+            <strong id="pause-hp">100%</strong>
+          </div>
+        </div>
+
+        <div class="action-stack">
+          <button type="button" id="btn-resume" class="btn-block primary">▶ 继续飞行 (P / Esc)</button>
+          <button type="button" id="btn-pause-setup" class="btn-block">🎯 校准实物底座 / 手机扫码</button>
+          <button type="button" id="btn-pause-stop" class="btn-block danger">⏹ 停止任务 · 返回主界面</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Voyage Summary / GameOver Overlay -->
+    <section id="gameover-overlay" class="state-overlay" hidden aria-labelledby="gameover-heading">
+      <div class="state-card">
+        <span class="state-badge">借风航志 · 返航结算</span>
+        <h2 id="gameover-heading">云端迫降 · 航程记录已归档</h2>
+        <p class="story-copy" id="gameover-epilogue" style="font-size:0.86rem;">
+          云浪暂时合拢了天窗，但桌上的小家伙已经记住这趟穿过积云的风声。
+        </p>
+
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <span>抵达航段</span>
+            <strong id="go-wave">第 1 幕</strong>
+          </div>
+          <div class="stat-cell">
+            <span>借风里程</span>
+            <strong id="go-dist">0.0 km</strong>
+          </div>
+          <div class="stat-cell">
+            <span>呼唤顺风</span>
+            <strong id="go-gust">0 次</strong>
+          </div>
+        </div>
+
+        <div class="stat-cell" style="align-items:center;">
+          <span>本航次总得分</span>
+          <strong id="go-score" style="font-size:1.35rem;color:#fde047;">0000000</strong>
+        </div>
+
+        <div class="action-stack">
+          <button type="button" id="btn-relaunch" class="btn-block primary">↻ 再次点火升空 (Enter / R)</button>
+          <button type="button" id="btn-go-title" class="btn-block">⏹ 返回桌面停机坪（主界面）</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Side-Docked See-Through Inspector Dialog (Zero backdrop blur so center helipad is 100% visible!) -->
+  <dialog id="setup-dialog" closedby="any" aria-labelledby="setup-title">
+    <div class="dialog-header">
+      <div class="dialog-header-left">
+        <h2 id="setup-title">座舱与底座设置</h2>
+        <span id="setup-pause-indicator" class="pause-pill" hidden>⏸ 已暂停</span>
+      </div>
+      <div class="header-btns">
+        <button type="button" id="btn-dock-side" class="close-btn" title="切换面板停靠在屏幕左侧或右侧">⇄ 移至右侧</button>
+        <form method="dialog" style="margin:0;">
+          <button type="submit" class="close-btn" autofocus id="btn-close-setup">完成 (Esc)</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="inspector-tabs" role="tablist" aria-label="设置分类">
+      <button type="button" role="tab" id="tab-btn-calib" class="tab-btn active" aria-selected="true" aria-controls="panel-calib">
+        🎯 底座实时校准
+      </button>
+      <button type="button" role="tab" id="tab-btn-pair" class="tab-btn" aria-selected="false" aria-controls="panel-pair">
+        📱 手机扫码遥控
+      </button>
+    </div>
+
+    <div class="dialog-body themed-scroller">
+      <!-- Tab 1: Unobstructed Live Rig Calibration -->
+      <section id="panel-calib" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-calib">
+        <div class="live-preview-banner">
+          👀 <strong>右侧画布正中央已点亮实时标尺</strong>：拖动下方滑块或点击右侧空白处即可边看边对准你的实物边缘。
+        </div>
+
+        <div class="seg-row" role="group" aria-label="核心视角模式">
+          <button type="button" class="seg-btn active" data-mode="tabletop">实体压屏 (动背景)</button>
+          <button type="button" class="seg-btn" data-mode="arcade">纯屏街机 (动飞机)</button>
+        </div>
+
+        <div class="field-row">
+          <span class="field-label">一键实物预设（把真玩具放进金色虚线框）</span>
+          <div class="seg-row">
+            <button type="button" class="seg-btn preset-btn" data-shape="car" data-w="74" data-l="118">🚗 合金小车</button>
+            <button type="button" class="seg-btn preset-btn active" data-shape="jet" data-w="92" data-l="122">✈️ 玩具战机</button>
+            <button type="button" class="seg-btn preset-btn" data-shape="jet" data-w="88" data-l="152">📄 折纸飞机</button>
+            <button type="button" class="seg-btn preset-btn" data-shape="orb" data-w="68" data-l="68">🧴 瓶盖/橡皮</button>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-width">
+            <span>实物宽度（两侧浮游僚机间距）</span>
+            <strong id="val-width">86 px</strong>
+          </label>
+          <input type="range" id="rng-width" class="calib-slider" min="36" max="220" value="86">
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-length">
+            <span>实物长度（机头炮口与尾部喷焰）</span>
+            <strong id="val-length">118 px</strong>
+          </label>
+          <input type="range" id="rng-length" class="calib-slider" min="44" max="260" value="118">
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-anchor">
+            <span>屏幕纵向锚点（上下移动停机坪）</span>
+            <strong id="val-anchor">75%</strong>
+          </label>
+          <input type="range" id="rng-anchor" class="calib-slider" min="55" max="85" value="75">
+        </div>
+
+        <label class="check-label">
+          <input type="checkbox" id="chk-godmode">
+          <span>开启<strong>亲子护航模式</strong>（受击不爆机）</span>
+        </label>
+
+        <button type="button" id="btn-calib-go" class="btn-block primary">
+          🚀 校准完毕 · 直接点火起飞
+        </button>
+      </section>
+
+      <!-- Tab 2: Mobile Cockpit QR Pairing & Controls -->
+      <section id="panel-pair" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-pair" hidden>
+        <div class="room-row">
+          <span style="font-size:0.82rem;font-weight:700;color:#bae6fd;">扫码把手机变成无线飞行杆</span>
+          <span id="room-code-badge" class="room-badge">ROOM ----</span>
+        </div>
+
+        <div class="qr-stage">
+          <div id="qr-box" aria-live="polite"></div>
+          <div id="link-live-status" class="hint-note" style="text-align:center;">
+            等待手机扫码接入（打开相机或浏览器扫上方二维码即可无线配对）
+          </div>
+        </div>
+
+        <div id="lan-options-wrap" class="field-row" hidden>
+          <div class="field-label">
+            <label for="host-select">局域网地址与传感器协议</label>
+          </div>
+          <select id="host-select"></select>
+          <p class="hint-note" id="https-tip">
+            触屏摇杆、磁轨炮和核弹走 HTTP 秒连；若需手机<strong>陀螺仪体感</strong>或<strong>麦克风吹气</strong>，请切为 HTTPS 地址（首次在手机浏览器点“高级 → 继续访问”）。
+          </p>
+        </div>
+
+        <div class="url-row">
+          <input type="text" id="controller-url-input" class="url-input" readonly aria-label="手机控制器链接">
+          <button type="button" id="btn-copy-url" class="close-btn">复制</button>
+          <button type="button" id="btn-open-sim" class="close-btn" title="在本机旁侧弹出手机座舱窗口进行双屏体验">同机副屏</button>
+        </div>
+
+        <div class="kbd-box">
+          <strong>蓝牙手柄 / 键盘同样即插即玩：</strong><br>
+          移动：<kbd>WASD</kbd> / <kbd>方向键</kbd> / 左摇杆 · 暂停：<kbd>P</kbd> / <kbd>Esc</kbd> · 磁轨炮：按住 <kbd>Shift</kbd> 或 <kbd>J</kbd><br>
+          8级顺风：<kbd>F</kbd> / 手柄 <kbd>□/X</kbd> · 核弹：<kbd>K</kbd> / 手柄 <kbd>○/B</kbd> · 翻滚：<kbd>Space</kbd>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+  <script src="./js/qrcode-mini.js"></script>
+  <script src="./js/sound-fx.js"></script>
+  <script src="./js/link-bridge.js"></script>
+  <script src="./js/game-engine.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      const params = new URLSearchParams(location.search);
+      const roomId = (params.get('room') || window.randomRoomCode()).toUpperCase();
+      if (!params.get('room') && history.replaceState) {
+        const nextUrl = new URL(location.href);
+        nextUrl.searchParams.set('room', roomId);
+        history.replaceState(null, '', nextUrl);
+      }
+
+      // Hoist all DOM bindings at top to eliminate any TDZ risk
+      const canvas = document.getElementById('game-canvas');
+      const dialog = document.getElementById('setup-dialog');
+      const titleOverlay = document.getElementById('title-overlay');
+      const pauseOverlay = document.getElementById('pause-overlay');
+      const gameoverOverlay = document.getElementById('gameover-overlay');
+      const remoteCalibBanner = document.getElementById('remote-calib-banner');
+      const setupPauseIndicator = document.getElementById('setup-pause-indicator');
+
+      const btnOpenCalib = document.getElementById('btn-open-calib');
+      const btnOpenSetup = document.getElementById('btn-open-setup');
+      const btnDockSide = document.getElementById('btn-dock-side');
+      const tabBtnCalib = document.getElementById('tab-btn-calib');
+      const tabBtnPair = document.getElementById('tab-btn-pair');
+      const panelCalib = document.getElementById('panel-calib');
+      const panelPair = document.getElementById('panel-pair');
+      const btnCalibGo = document.getElementById('btn-calib-go');
+
+      const btnPause = document.getElementById('btn-pause');
+      const btnStop = document.getElementById('btn-stop');
+      const btnToggleMode = document.getElementById('btn-toggle-mode');
+      const btnSkyTheme = document.getElementById('btn-sky-theme');
+      const btnPureCamera = document.getElementById('btn-pure-camera');
+      const btnMute = document.getElementById('btn-mute');
+      const wakeCameraBtn = document.getElementById('wake-camera-btn');
+
+      const btnStartMission = document.getElementById('btn-start-mission');
+      const btnTitleCalib = document.getElementById('btn-title-calib');
+      const btnTitleSetup = document.getElementById('btn-title-setup');
+      const titleHelipadTip = document.getElementById('title-helipad-tip');
+      const titleConnPill = document.getElementById('title-conn-pill');
+
+      const pauseChapterBadge = document.getElementById('pause-chapter-badge');
+      const pauseSubtitle = document.getElementById('pause-subtitle');
+      const pauseDist = document.getElementById('pause-dist');
+      const pauseScore = document.getElementById('pause-score');
+      const pauseHp = document.getElementById('pause-hp');
+      const btnResume = document.getElementById('btn-resume');
+      const btnPauseSetup = document.getElementById('btn-pause-setup');
+      const btnPauseStop = document.getElementById('btn-pause-stop');
+
+      const gameoverEpilogue = document.getElementById('gameover-epilogue');
+      const goWave = document.getElementById('go-wave');
+      const goDist = document.getElementById('go-dist');
+      const goGust = document.getElementById('go-gust');
+      const goScore = document.getElementById('go-score');
+      const btnRelaunch = document.getElementById('btn-relaunch');
+      const btnGoTitle = document.getElementById('btn-go-title');
+
+      const rngWidth = document.getElementById('rng-width');
+      const rngLength = document.getElementById('rng-length');
+      const rngAnchor = document.getElementById('rng-anchor');
+      const chkGod = document.getElementById('chk-godmode');
+      const valWidth = document.getElementById('val-width');
+      const valLength = document.getElementById('val-length');
+      const valAnchor = document.getElementById('val-anchor');
+      const modeBtnLabel = document.getElementById('mode-btn-label');
+
+      const sfx = new window.SoundFX();
+      let bridge = null;
+      let engine = null;
+
+      const SKY_LABELS = {
+        auto: '背景：随剧情',
+        day: '背景：晴空',
+        sunset: '背景：暮色',
+        night: '背景：深空'
+      };
+      const SKY_ORDER = ['auto', 'day', 'sunset', 'night'];
+
+      function switchInspectorTab(tabName) {
+        const isCalib = tabName === 'calib';
+        tabBtnCalib.classList.toggle('active', isCalib);
+        tabBtnCalib.setAttribute('aria-selected', String(isCalib));
+        tabBtnPair.classList.toggle('active', !isCalib);
+        tabBtnPair.setAttribute('aria-selected', String(!isCalib));
+        panelCalib.hidden = !isCalib;
+        panelPair.hidden = isCalib;
+      }
+
+      tabBtnCalib.addEventListener('click', () => {
+        sfx.uiClick();
+        switchInspectorTab('calib');
+      });
+      tabBtnPair.addEventListener('click', () => {
+        sfx.uiClick();
+        switchInspectorTab('pair');
+      });
+
+      btnDockSide.addEventListener('click', () => {
+        sfx.uiClick();
+        const right = dialog.classList.toggle('dock-right');
+        btnDockSide.textContent = right ? '⇄ 移至左侧' : '⇄ 移至右侧';
+      });
+
+      function buildVoyageEpilogue(st) {
+        if (st.wave >= 3) {
+          return `你们一路穿过晴空与暮色，闯进了第三幕星海灯塔，在桌面上飞出了 ${st.distanceKm.toFixed(1)} 公里。只要再点一次点火，这片星空随时替它亮起。`;
+        }
+        if (st.wave === 2) {
+          return `冲破第一道灰雾后，小家伙在漫天晚霞里飞出了 ${st.distanceKm.toFixed(1)} 公里。下次遇到密集弹幕，试着对手机吹一口八级顺风。`;
+        }
+        return `第一次试飞已在云端推进 ${st.distanceKm.toFixed(1)} 公里。扶正桌面上的机身，拉下磁轨栓或呼唤顺风，我们再冲一次天窗！`;
+      }
+
+      function syncUIFromRig(st) {
+        if (!st) return;
+        const onTitle = st.phase === 'title';
+        const isPlaying = st.phase === 'playing';
+        const isGameOver = st.phase === 'gameover';
+        const localDialogOpen = Boolean(dialog.open);
+
+        document.body.classList.toggle('pure-camera', Boolean(st.pureCamera) && !onTitle && !localDialogOpen);
+        document.body.classList.toggle('inspector-open', localDialogOpen);
+
+        btnPause.hidden = !isPlaying;
+        btnStop.hidden = onTitle;
+        if (isPlaying) {
+          btnPause.textContent = st.paused ? '▶ 继续 (P)' : '⏸ 暂停 (P)';
+          btnPause.classList.toggle('warn', Boolean(st.paused));
+        }
+
+        modeBtnLabel.textContent =
+          st.mode === 'tabletop' ? '模式：实体压屏 (动背景)' : '模式：纯屏街机 (动飞机)';
+        btnSkyTheme.textContent = SKY_LABELS[st.skyTheme] || '背景：随剧情';
+
+        document.querySelectorAll('[data-mode]').forEach((b) => {
+          b.classList.toggle('active', b.dataset.mode === st.mode);
+        });
+
+        titleHelipadTip.textContent = st.mode === 'tabletop'
+          ? '⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内'
+          : '⬇ 当前为纯屏虚拟战机模式，下方战机已就位，可直接点火升空';
+
+        btnCalibGo.textContent = isPlaying
+          ? '▶ 校准完毕 · 继续飞行'
+          : '🚀 校准完毕 · 直接点火起飞';
+
+        // Hide center overlays whenever local or mobile calibration is open so the center helipad is 100% clear!
+        const anyCalibOpen = localDialogOpen || Boolean(st.setupPaused);
+        titleOverlay.hidden = !onTitle || anyCalibOpen;
+        setupPauseIndicator.hidden = !isPlaying;
+        remoteCalibBanner.hidden = !(!localDialogOpen && st.setupPaused);
+
+        const showManualPauseCard = isPlaying && st.manualPaused && !st.setupPaused && !localDialogOpen;
+        pauseOverlay.hidden = !showManualPauseCard;
+        if (showManualPauseCard) {
+          pauseChapterBadge.textContent = st.chapterTitle || '第一航段 · 晴空借风';
+          pauseSubtitle.textContent = st.chapterSubtitle || '云海已在机翼下静止，随时准备再次加速。';
+          pauseDist.textContent = `${(st.distanceKm || 0).toFixed(1)} km`;
+          pauseScore.textContent = String(st.score || 0);
+          pauseHp.textContent = `${st.hp ?? 100}%`;
+        }
+
+        const showGameOverCard = isGameOver && !localDialogOpen;
+        gameoverOverlay.hidden = !showGameOverCard;
+        if (showGameOverCard) {
+          gameoverEpilogue.textContent = buildVoyageEpilogue(st);
+          goWave.textContent = `第 ${st.wave || 1} 幕`;
+          goDist.textContent = `${(st.distanceKm || 0).toFixed(1)} km`;
+          goGust.textContent = `${st.gustUsedCount || 0} 次`;
+          goScore.textContent = String(st.score || 0).padStart(7, '0');
+        }
+
+        rngWidth.value = Math.round(st.width);
+        rngLength.value = Math.round(st.length);
+        rngAnchor.value = Math.round(st.anchorY * 100);
+        valWidth.textContent = `${Math.round(st.width)} px`;
+        valLength.textContent = `${Math.round(st.length)} px`;
+        valAnchor.textContent = `${Math.round(st.anchorY * 100)}%`;
+        chkGod.checked = Boolean(st.godMode);
+      }
+
+      function openSetupDialog(initialTab = 'calib') {
+        sfx.unlock();
+        sfx.uiClick();
+        switchInspectorTab(initialTab);
+        if (!dialog.open) dialog.showModal();
+        if (engine) {
+          engine.setSetupPause(true);
+          syncUIFromRig(engine.getPublicState());
+        }
+      }
+
+      // Safari / legacy fallback for <dialog closedby="any">
+      if (!('closedBy' in HTMLDialogElement.prototype)) {
+        dialog.addEventListener('click', (event) => {
+          if (event.target !== dialog) return;
+          const rect = dialog.getBoundingClientRect();
+          const inBox = (
+            rect.top <= event.clientY &&
+            event.clientY <= rect.top + rect.height &&
+            rect.left <= event.clientX &&
+            event.clientX <= rect.left + rect.width
+          );
+          if (!inBox) dialog.close();
+        });
+      }
+
+      dialog.addEventListener('close', () => {
+        dialog.returnValue = '';
+        dialog.classList.remove('scrubbing');
+        if (engine) engine.setSetupPause(false);
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && engine && engine.phase === 'playing') {
+          engine.setManualPause(true);
+        }
+      });
+
+      engine = new window.SkyStrikerEngine(canvas, sfx, {
+        onTelemetry(telemetry) {
+          if (bridge) bridge.send('telemetry', telemetry);
+        },
+        onStateChange(st) {
+          syncUIFromRig(st);
+          if (bridge) bridge.send('hostState', st);
+        }
+      });
+
+      bridge = new window.LinkBridge({
+        role: 'host',
+        roomId,
+        onMessage(type, payload) {
+          if (type === 'input') {
+            engine.setRemoteInput(payload);
+          } else if (type === 'railgunFire') {
+            engine.triggerRailgun(payload && payload.power ? payload.power : 1);
+          } else if (type === 'nuke') {
+            engine.triggerNuke();
+          } else if (type === 'windGust') {
+            engine.triggerWindGust();
+          } else if (type === 'barrelRoll') {
+            engine.triggerBarrelRoll();
+          } else if (type === 'updateRig') {
+            engine.updateRig(payload || {}, true);
+          } else if (type === 'calibFocus') {
+            engine.setSetupPause(Boolean(payload && payload.open));
+          } else if (type === 'startMission' || type === 'restart') {
+            sfx.unlock();
+            if (dialog.open) dialog.close();
+            engine.startMission();
+          } else if (type === 'togglePause') {
+            if (dialog.open) dialog.close();
+            else engine.toggleManualPause();
+          } else if (type === 'setPause') {
+            const wantPause = Boolean(payload && payload.paused);
+            if (!wantPause && dialog.open) dialog.close();
+            engine.setManualPause(wantPause);
+          } else if (type === 'stopToTitle') {
+            if (dialog.open) dialog.close();
+            engine.stopToTitle();
+          } else if (type === 'requestState') {
+            bridge.send('hostState', engine.getPublicState());
+          }
+        },
+        onStatus(info) {
+          const dot = document.getElementById('conn-dot');
+          const txt = document.getElementById('conn-text');
+          const live = document.getElementById('link-live-status');
+          if (info.connected) {
+            dot.classList.add('connected');
+            const rtt = info.rttMs ? ` · ${info.rttMs}ms` : '';
+            txt.textContent = `座舱已连 (${info.transport}${rtt})`;
+            titleConnPill.textContent = `✅ 手机座舱已就绪 (${info.transport})`;
+            titleConnPill.style.color = '#4ade80';
+            live.textContent = `✅ 手机座舱已连接（通道：${info.transport}${rtt}），可切到左上方「底座实时校准」或直接开飞！`;
+            live.style.color = '#4ade80';
+          } else {
+            dot.classList.remove('connected');
+            txt.textContent = `手机扫码 (${roomId})`;
+            titleConnPill.textContent = `房间 ${roomId} · 可扫码连手机或直接起飞`;
+            titleConnPill.style.color = '';
+            live.textContent = /\.github\.io$/i.test(location.hostname)
+              ? '等待手机扫码接入（HTTPS 公网支持 WebRTC 直连，自动解锁陀螺仪与吹气清屏）'
+              : '等待手机扫码接入（本地模式请确保手机与本机在同一 Wi-Fi / 热点）';
+            live.style.color = '';
+          }
+        }
+      });
+      bridge.start();
+
+      // Build QR & LAN Endpoints
+      const roomBadge = document.getElementById('room-code-badge');
+      const qrBox = document.getElementById('qr-box');
+      const urlInput = document.getElementById('controller-url-input');
+      const hostSelect = document.getElementById('host-select');
+      const lanWrap = document.getElementById('lan-options-wrap');
+      roomBadge.textContent = `ROOM ${roomId}`;
+
+      function updateQRForBase(baseOrigin) {
+        const ctrlUrl = new URL('./controller.html', baseOrigin + location.pathname);
+        ctrlUrl.searchParams.set('room', roomId);
+        const full = ctrlUrl.toString();
+        urlInput.value = full;
+        try {
+          qrBox.innerHTML = window.MiniQR.renderQRSVG(full, { margin: 2 });
+        } catch (err) {
+          qrBox.textContent = full;
+        }
+      }
+
+      updateQRForBase(location.origin);
+
+      if (!/\.github\.io$/i.test(location.hostname)) {
+        fetch('/api/network-info')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((info) => {
+            if (!info || !Array.isArray(info.endpoints) || info.endpoints.length === 0) return;
+            lanWrap.hidden = false;
+            hostSelect.innerHTML = '';
+            info.endpoints.forEach((ep, idx) => {
+              const opt = document.createElement('option');
+              opt.value = ep.origin;
+              opt.textContent = ep.label;
+              if (idx === 0) opt.selected = true;
+              hostSelect.appendChild(opt);
+            });
+            updateQRForBase(info.endpoints[0].origin);
+          })
+          .catch(() => {});
+      }
+
+      hostSelect.addEventListener('change', () => {
+        updateQRForBase(hostSelect.value);
+      });
+
+      document.getElementById('btn-copy-url').addEventListener('click', () => {
+        navigator.clipboard?.writeText(urlInput.value);
+        const btn = document.getElementById('btn-copy-url');
+        btn.textContent = '已复制';
+        setTimeout(() => { btn.textContent = '复制'; }, 1200);
+      });
+
+      document.getElementById('btn-open-sim').addEventListener('click', () => {
+        const simUrl = new URL('./controller.html', location.href);
+        simUrl.searchParams.set('room', roomId);
+        window.open(simUrl.toString(), 'SkyStrikerCockpit', 'width=410,height=840');
+      });
+
+      // Inspector Openers (Direct tab routing!)
+      btnOpenCalib.addEventListener('click', () => openSetupDialog('calib'));
+      btnTitleCalib.addEventListener('click', () => openSetupDialog('calib'));
+      btnPauseSetup.addEventListener('click', () => openSetupDialog('calib'));
+      btnOpenSetup.addEventListener('click', () => openSetupDialog('pair'));
+      btnTitleSetup.addEventListener('click', () => openSetupDialog('pair'));
+
+      btnCalibGo.addEventListener('click', () => {
+        sfx.unlock();
+        const wasPlaying = engine.phase === 'playing';
+        if (dialog.open) dialog.close();
+        if (wasPlaying) {
+          engine.setManualPause(false);
+        } else {
+          engine.startMission();
+        }
+      });
+
+      btnStartMission.addEventListener('click', () => {
+        sfx.unlock();
+        engine.startMission();
+      });
+
+      btnRelaunch.addEventListener('click', () => {
+        sfx.unlock();
+        engine.startMission();
+      });
+
+      btnPause.addEventListener('click', () => {
+        sfx.unlock();
+        sfx.uiClick();
+        engine.toggleManualPause();
+      });
+
+      btnResume.addEventListener('click', () => {
+        sfx.unlock();
+        sfx.uiClick();
+        engine.setManualPause(false);
+      });
+
+      const handleStopToTitle = () => {
+        sfx.unlock();
+        sfx.uiClick();
+        if (dialog.open) dialog.close();
+        engine.stopToTitle();
+      };
+      btnStop.addEventListener('click', handleStopToTitle);
+      btnPauseStop.addEventListener('click', handleStopToTitle);
+      btnGoTitle.addEventListener('click', handleStopToTitle);
+
+      btnToggleMode.addEventListener('click', () => {
+        sfx.unlock();
+        sfx.uiClick();
+        const next = engine.rig.mode === 'tabletop' ? 'arcade' : 'tabletop';
+        engine.updateRig({ mode: next }, true);
+      });
+
+      btnPureCamera.addEventListener('click', () => {
+        sfx.unlock();
+        engine.updateRig({ pureCamera: true }, false);
+      });
+
+      wakeCameraBtn.addEventListener('click', () => {
+        engine.updateRig({ pureCamera: false }, false);
+      });
+
+      btnMute.addEventListener('click', (ev) => {
+        const muted = sfx.toggleMute();
+        ev.currentTarget.textContent = muted ? '音效：关' : '音效：开';
+      });
+
+      btnSkyTheme.addEventListener('click', () => {
+        sfx.unlock();
+        sfx.uiClick();
+        const curIdx = SKY_ORDER.indexOf(engine.rig.skyTheme);
+        const nextTheme = SKY_ORDER[(curIdx + 1) % SKY_ORDER.length];
+        engine.updateRig({ skyTheme: nextTheme }, false);
+      });
+
+      // Calibration Controls: touching physical rig sliders/presets auto-ensures 'tabletop' mode so the ruler is visible!
+      document.querySelectorAll('.calib-slider').forEach((sl) => {
+        sl.addEventListener('pointerdown', () => dialog.classList.add('scrubbing'));
+        sl.addEventListener('pointerup', () => dialog.classList.remove('scrubbing'));
+        sl.addEventListener('pointercancel', () => dialog.classList.remove('scrubbing'));
+      });
+
+      rngWidth.addEventListener('input', () => {
+        engine.updateRig({ mode: 'tabletop', width: Number(rngWidth.value) }, true);
+      });
+      rngLength.addEventListener('input', () => {
+        engine.updateRig({ mode: 'tabletop', length: Number(rngLength.value) }, true);
+      });
+      rngAnchor.addEventListener('input', () => {
+        engine.updateRig({ mode: 'tabletop', anchorY: Number(rngAnchor.value) / 100 }, true);
+      });
+      chkGod.addEventListener('change', () => {
+        engine.updateRig({ godMode: chkGod.checked }, false);
+      });
+
+      document.querySelectorAll('[data-mode]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          sfx.unlock();
+          sfx.uiClick();
+          engine.updateRig({ mode: btn.dataset.mode }, true);
+        });
+      });
+
+      document.querySelectorAll('.preset-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.preset-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          engine.updateRig({
+            mode: 'tabletop',
+            shape: btn.dataset.shape,
+            width: Number(btn.dataset.w),
+            length: Number(btn.dataset.l)
+          }, true);
+        });
+      });
+
+      // Direct Canvas Pointer Drag Control
+      let dragOriginX = 0;
+      let dragOriginY = 0;
+      canvas.addEventListener('pointerdown', (ev) => {
+        sfx.unlock();
+        if (engine.phase !== 'playing' || engine.isPaused) return;
+        if (ev.button !== 0) return;
+        dragOriginX = ev.clientX;
+        dragOriginY = ev.clientY;
+        engine.pointerDrag.active = true;
+        engine.pointerDrag.vx = 0;
+        engine.pointerDrag.vy = 0;
+        canvas.setPointerCapture(ev.pointerId);
+      });
+
+      canvas.addEventListener('pointermove', (ev) => {
+        if (!canvas.hasPointerCapture(ev.pointerId)) return;
+        const dx = (ev.clientX - dragOriginX) / 95;
+        const dy = (ev.clientY - dragOriginY) / 95;
+        const mag = Math.hypot(dx, dy);
+        if (mag > 1) {
+          engine.pointerDrag.vx = dx / mag;
+          engine.pointerDrag.vy = dy / mag;
+        } else {
+          engine.pointerDrag.vx = dx;
+          engine.pointerDrag.vy = dy;
+        }
+      });
+
+      canvas.addEventListener('lostpointercapture', () => {
+        engine.pointerDrag.active = false;
+        engine.pointerDrag.vx = 0;
+        engine.pointerDrag.vy = 0;
+      });
+
+      // Keyboard Controls
+      window.addEventListener('keydown', (ev) => {
+        if (dialog.open) return;
+        sfx.unlock();
+
+        if (engine.phase === 'title') {
+          if (ev.code === 'Enter' || ev.code === 'Space') {
+            ev.preventDefault();
+            engine.startMission();
+          } else if (ev.code === 'KeyM') {
+            engine.updateRig({ mode: engine.rig.mode === 'tabletop' ? 'arcade' : 'tabletop' }, true);
+          }
+          return;
+        }
+
+        if (engine.phase === 'gameover') {
+          if (ev.code === 'Enter' || ev.code === 'KeyR') {
+            ev.preventDefault();
+            engine.startMission();
+          } else if (ev.code === 'Escape') {
+            ev.preventDefault();
+            engine.stopToTitle();
+          }
+          return;
+        }
+
+        if (ev.code === 'KeyP' || ev.code === 'Escape') {
+          ev.preventDefault();
+          if (engine.rig.pureCamera && ev.code === 'Escape') {
+            engine.updateRig({ pureCamera: false }, false);
+          }
+          engine.toggleManualPause();
+          return;
+        }
+
+        if (engine.isPaused) {
+          if (ev.code === 'Enter') {
+            ev.preventDefault();
+            engine.setManualPause(false);
+          }
+          return;
+        }
+
+        engine.keys.add(ev.code);
+
+        if (ev.code === 'Space') {
+          ev.preventDefault();
+          engine.triggerBarrelRoll();
+        } else if (ev.code === 'KeyF') {
+          engine.triggerWindGust();
+        } else if (ev.code === 'KeyK' || ev.code === 'Enter') {
+          engine.triggerNuke();
+        } else if (ev.code === 'KeyM') {
+          engine.updateRig({ mode: engine.rig.mode === 'tabletop' ? 'arcade' : 'tabletop' }, true);
+        } else if (ev.code === 'KeyH') {
+          engine.updateRig({ pureCamera: !engine.rig.pureCamera }, false);
+        }
+      });
+
+      window.addEventListener('keyup', (ev) => {
+        engine.keys.delete(ev.code);
+      });
+
+      window.addEventListener('resize', () => engine.resize());
+
+      let lastTs = performance.now();
+      function frame(now) {
+        const dt = (now - lastTs) / 1000;
+        lastTs = now;
+        engine.step(dt);
+        engine.render();
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      window.__skyHost = { engine, bridge, dialog, openSetupDialog };
+    })();
+  </script>
+</body>
+</html>
