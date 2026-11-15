@@ -408,6 +408,52 @@
       color: var(--accent-amber);
     }
 
+    .rank-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+
+    .stat-cell .rank-badge {
+      width: 3.2rem;
+      height: 3.2rem;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font: 900 1.7rem/1 system-ui, -apple-system, sans-serif;
+      color: #0f172a;
+      background: radial-gradient(circle at 35% 30%, #fef9c3, #facc15 60%, #a16207);
+      box-shadow: 0 0 24px rgba(250, 204, 21, 0.45);
+    }
+
+    .stat-cell .rank-badge[data-rank="S"] { background: radial-gradient(circle at 35% 30%, #fce7f3, #f472b6 60%, #9d174d); box-shadow: 0 0 28px rgba(244, 114, 182, 0.55); }
+    .stat-cell .rank-badge[data-rank="B"] { background: radial-gradient(circle at 35% 30%, #e0f2fe, #38bdf8 60%, #075985); box-shadow: 0 0 20px rgba(56, 189, 248, 0.4); }
+    .stat-cell .rank-badge[data-rank="C"] { background: radial-gradient(circle at 35% 30%, #f1f5f9, #94a3b8 60%, #334155); box-shadow: none; }
+
+    .stat-cell .new-record {
+      color: #fde047;
+      font-weight: 800;
+      font-size: 0.82rem;
+      animation: recordPulse 1s ease-in-out infinite alternate;
+    }
+
+    @keyframes recordPulse {
+      from { opacity: 0.55; transform: scale(0.97); }
+      to { opacity: 1; transform: scale(1.03); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .stat-cell .new-record { animation: none; }
+    }
+
+    .title-best {
+      margin: 0;
+      font-size: 0.82rem;
+      color: #fde68a;
+      text-align: center;
+    }
+
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -883,6 +929,8 @@
         </button>
       </div>
 
+      <p class="title-best" id="title-best" hidden></p>
+
       <p class="helipad-guide" id="title-helipad-tip">
         ⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内
       </p>
@@ -949,9 +997,29 @@
           </div>
         </div>
 
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <span>击落敌机</span>
+            <strong id="go-kills">0</strong>
+          </div>
+          <div class="stat-cell">
+            <span>最高连击</span>
+            <strong id="go-combo">0</strong>
+          </div>
+          <div class="stat-cell">
+            <span>收集金星</span>
+            <strong id="go-medals">0</strong>
+          </div>
+        </div>
+
         <div class="stat-cell" style="align-items:center;">
           <span>本航次总得分</span>
-          <strong id="go-score" style="font-size:1.35rem;color:#fde047;">0000000</strong>
+          <div class="rank-row">
+            <span class="rank-badge" id="go-rank" data-rank="C" aria-label="航程评级">C</span>
+            <strong id="go-score" style="font-size:1.35rem;color:#fde047;">0000000</strong>
+          </div>
+          <span id="go-record" class="new-record" hidden>🏆 新纪录！</span>
+          <span id="go-best" style="font-size:0.75rem;">历史最佳 0</span>
         </div>
 
         <div class="action-stack">
@@ -1143,6 +1211,13 @@
       const goDist = document.getElementById('go-dist');
       const goGust = document.getElementById('go-gust');
       const goScore = document.getElementById('go-score');
+      const goKills = document.getElementById('go-kills');
+      const goCombo = document.getElementById('go-combo');
+      const goMedals = document.getElementById('go-medals');
+      const goRank = document.getElementById('go-rank');
+      const goRecord = document.getElementById('go-record');
+      const goBest = document.getElementById('go-best');
+      const titleBest = document.getElementById('title-best');
       const btnRelaunch = document.getElementById('btn-relaunch');
       const btnGoTitle = document.getElementById('btn-go-title');
 
@@ -1193,6 +1268,11 @@
       });
 
       function buildVoyageEpilogue(st) {
+        if (st.storyCleared) {
+          const extra = Math.max(0, (st.wave || 4) - 4);
+          const endless = extra > 0 ? `又在无尽航线上多闯了 ${extra} 关，` : '';
+          return `三幕航段全部完成！你守住了桌面上的云端天窗，${endless}总里程 ${st.distanceKm.toFixed(1)} 公里。桌上这件小小旧物，今晚就是王牌机长。`;
+        }
         if (st.wave >= 3) {
           return `你们一路穿过晴空与暮色，闯进了第三幕星海灯塔，在桌面上飞出了 ${st.distanceKm.toFixed(1)} 公里。只要再点一次点火，这片星空随时替它亮起。`;
         }
@@ -1255,10 +1335,31 @@
         gameoverOverlay.hidden = !showGameOverCard;
         if (showGameOverCard) {
           gameoverEpilogue.textContent = buildVoyageEpilogue(st);
-          goWave.textContent = `第 ${st.wave || 1} 幕`;
+          document.getElementById('gameover-heading').textContent = st.storyCleared
+            ? '凯旋返航 · 借风计划完成'
+            : '云端迫降 · 航程记录已归档';
+          goWave.textContent = st.storyCleared
+            ? (st.wave > 4 ? `无尽第 ${st.wave} 关` : '三幕通关 ⭐')
+            : `第 ${st.wave || 1} 幕`;
           goDist.textContent = `${(st.distanceKm || 0).toFixed(1)} km`;
           goGust.textContent = `${st.gustUsedCount || 0} 次`;
           goScore.textContent = String(st.score || 0).padStart(7, '0');
+          goKills.textContent = String(st.kills || 0);
+          goCombo.textContent = String(st.maxCombo || 0);
+          goMedals.textContent = String(st.medals || 0);
+          const run = st.lastRun || {};
+          goRank.textContent = run.rank || 'C';
+          goRank.dataset.rank = run.rank || 'C';
+          goRecord.hidden = !run.newRecord;
+          goBest.textContent = run.newRecord && run.prevBest > 0
+            ? `刷新历史最佳（上次 ${run.prevBest}）`
+            : `历史最佳 ${(st.best && st.best.score) || 0}`;
+        }
+
+        const best = st.best || {};
+        titleBest.hidden = !(best.score > 0);
+        if (best.score > 0) {
+          titleBest.textContent = `🏆 历史最佳 ${best.score} 分 · 最远 ${Number(best.distanceKm || 0).toFixed(1)} km${best.cleared ? ' · 已通关三幕航段 ⭐' : ''}`;
         }
 
         rngWidth.value = Math.round(st.width);
@@ -1656,7 +1757,19 @@
         engine.keys.delete(ev.code);
       });
 
-      window.addEventListener('resize', () => engine.resize());
+      // Keep the canvas HUD tucked beneath the floating DOM toolbar (which wraps on narrow screens)
+      const topBar = document.querySelector('.top-bar');
+      function syncHudInset() {
+        const r = topBar.getBoundingClientRect();
+        engine.hudTop = r.height > 0 ? Math.round(r.bottom + 8) : 12;
+      }
+      syncHudInset();
+      if (window.ResizeObserver) new ResizeObserver(syncHudInset).observe(topBar);
+
+      window.addEventListener('resize', () => {
+        engine.resize();
+        syncHudInset();
+      });
 
       let lastTs = performance.now();
       function frame(now) {
