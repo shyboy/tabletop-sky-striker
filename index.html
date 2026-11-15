@@ -1531,6 +1531,9 @@
             const wantPause = Boolean(payload && payload.paused);
             if (!wantPause && dialog.open) dialog.close();
             engine.setManualPause(wantPause);
+          } else if (type === 'finishVoyage') {
+            if (dialog.open) dialog.close();
+            engine.finishVoyage();
           } else if (type === 'stopToTitle') {
             if (dialog.open) dialog.close();
             engine.stopToTitle();
@@ -1849,6 +1852,7 @@
         }
 
         engine.keys.add(ev.code);
+        if (ev.repeat) return; // held keys must not auto-fire gusts / nukes / rolls
 
         if (ev.code === 'Space') {
           ev.preventDefault();

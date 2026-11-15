@@ -52,7 +52,7 @@
 
   // Difficulty tiers (亲子护航 invincibility is a separate toggle on top of these)
   const DIFFICULTY = {
-    easy: { label: '轻松', dmg: 0.55, bulletSpeed: 0.8, spawn: 1.3 },
+    easy: { label: '轻松', dmg: 0.35, bulletSpeed: 0.7, spawn: 1.5, regen: 1.2, startShield: 1 },
     normal: { label: '标准', dmg: 1, bulletSpeed: 1, spawn: 1 },
     ace: { label: '王牌', dmg: 1.35, bulletSpeed: 1.15, spawn: 0.82 }
   };
@@ -161,6 +161,10 @@
       this.breath = 0;        // smoothed sustained-breath level (phone mic / held key)
       this.breathPeak = 0;    // recent peak, scales the strength of a gust
       this.breezeAccum = 0;
+      this.breathGate = false;
+      this.breathHold = 0;
+      this.lungs = 1;          // breath stamina: a long blow runs out, like real lungs
+      this.lungsExhausted = false;
       this.hitsTaken = 0;
       this.victoryHold = false;
       this.victoryHoldTimer = 0;
@@ -262,6 +266,7 @@
       this.phase = 'playing';
       this.gameOver = false;
       this.manualPaused = false;
+      this.player.shield = this.tier.startShield || 0;
       this.calibHighlightTimer = 3.2;
       this._announceChapter(1);
       this.sfx.powerup();
@@ -274,8 +279,14 @@
 
     setManualPause(flag) {
       if (this.phase !== 'playing') return;
+      // Ignore stray resume inputs (mashed nuke/Enter/phone button) right after the victory card appears
+      if (!flag && this.victoryHold && Date.now() - (this.victoryHoldSince || 0) < 1500) return;
       this.manualPaused = Boolean(flag);
-      if (!this.manualPaused) this.victoryHold = false; // resuming from the victory card = continue on the endless route
+      if (!this.manualPaused && this.victoryHold) {
+        // Resuming from the victory card = continue on the endless route, with a grace window
+        this.victoryHold = false;
+        this.player.invulnTimer = Math.max(this.player.invulnTimer, 2.2);
+      }
       this.keys.clear();
       this.pointerDrag.active = false;
       this.onStateChange(this.getPublicState());
@@ -457,6 +468,7 @@
 
     setRemoteInput(data) {
       if (!data) return;
+      this._lastRemoteInputAt = performance.now();
       if (typeof data.vx === 'number') this.remoteInput.vx = clamp(data.vx, -1, 1);
       if (typeof data.vy === 'number') this.remoteInput.vy = clamp(data.vy, -1, 1);
       if (typeof data.firing === 'boolean') this.remoteInput.firing = data.firing;
@@ -477,7 +489,11 @@
     triggerRailgun(power = 1) {
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.railCooldown > 0 || p.railBeamTimer > 0) return false;
-      const perfect = power >= 0.95;
+      const sinceFull = this.fullChargeAt !== null && this.fullChargeAt !== undefined ? this.time - this.fullChargeAt : 99;
+      const perfect = power >= 0.97 && sinceFull <= 0.45;
+      const overheated = power >= 0.97 && !perfect;
+      this.fullChargeAt = null;
+      if (overheated) power = 0.8;
       const clampedPower = perfect ? 1.25 : clamp(power, 0.35, 1);
       p.railBeamPower = clampedPower;
       p.railPerfect = perfect;
@@ -540,8 +556,9 @@
     triggerWindGust(power) {
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.gustCooldown > 0) return false;
-      const pw = clamp(typeof power === 'number' ? power : Math.max(0.75, this.breathPeak), 0.4, 1);
+      const pw = clamp(typeof power === 'number' ? power : Math.max(0.6, this.breathPeak), 0.4, 1);
       this.gustUsedCount++;
+      p.gustStartedAt = this.time;
       p.gustTimer = 0.9 + pw * 0.6;
       p.gustCooldown = p.gustMaxCooldown;
       p.invulnTimer = Math.max(p.invulnTimer, 0.9);
@@ -591,7 +608,7 @@
 
       if (boss && !boss.dead) {
         if (boss.bossKind === 'fog') {
-          boss.unveiled = 6 + pw * 4;
+          boss.unveiled = 4 + pw * 2;
           this.floatingTexts.push({ x: boss.x, y: boss.y + 90, text: '灰雾护甲被吹散！全力开火！', color: '#fde047', life: 1.6, big: true });
           this._spawnExplosion(boss.x, boss.y, '#e2e8f0', 24, 320);
         } else if (boss.bossKind === 'storm' && this.hazards.length) {
@@ -768,13 +785,26 @@
       }
 
       const railCharge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
+      // Track when the charge first hit full: releasing within 0.45s is a "perfect" shot, holding longer overheats
+      if (railCharge >= 0.97) {
+        if (this.fullChargeAt === null || this.fullChargeAt === undefined) {
+          this.fullChargeAt = this.time;
+          this._sfx('comboMilestone', 50);
+          this.onTelemetry({ warn: 'perfect' });
+        }
+      } else if (railCharge < 0.5) {
+        this.fullChargeAt = null;
+      }
       // Sustained breath: real mic level from the phone, or holding the gust key/button as a gentle breeze
       const heldBreeze = this.keys.has('KeyF') || gp.breeze ? 0.5 : 0;
+      // A phone that locks or disconnects mid-blow must not leave a permanent tailwind behind
+      if (this._lastRemoteInputAt && performance.now() - this._lastRemoteInputAt > 350) this.remoteInput.micLevel = 0;
       return {
         vx,
         vy,
         firing: this.remoteInput.firing || gp.firing || kx !== 0 || ky !== 0 || this.pointerDrag.active,
         railCharge,
+        micBreath: this.remoteInput.micLevel || 0,
         breath: Math.max(this.remoteInput.micLevel || 0, heldBreeze)
       };
     }
@@ -854,22 +884,49 @@
         if (this.comboTimer <= 0) this.combo = 0;
       }
       if (this.warnThrottle > 0) this.warnThrottle -= dt;
+      // Easy tier: the hull slowly self-repairs while not being hit
+      if (this.tier.regen && p.invulnTimer <= 0 && p.hp > 0 && p.hp < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp + this.tier.regen * dt);
+      }
       if (this.victoryHoldTimer > 0) {
         this.victoryHoldTimer -= dt;
         if (this.victoryHoldTimer <= 0 && this.phase === 'playing') {
           this.victoryHold = true;
+          this.victoryHoldSince = Date.now();
           this.setManualPause(true);
+          this._sfx('victory');
           return;
         }
       }
 
       // "借风": a soft, sustained blow is a tailwind — it slows incoming fire, pulls in loot and recharges the big gust
-      const rawBreath = inp.breath > 0.16 ? inp.breath : 0;
+      // Noise gate with hysteresis + 150ms hold so a nearby speaker or chatter doesn't count as breath
+      const gateOn = this.breathGate ? 0.18 : 0.26;
+      if (inp.breath > gateOn) {
+        this.breathGate = true;
+        this.breathHold = 0.15;
+      } else if (this.breathGate) {
+        this.breathHold -= dt;
+        if (this.breathHold <= 0) this.breathGate = false;
+      }
+      let rawBreath = this.breathGate ? inp.breath : 0;
+      if (rawBreath > 0 && !this.lungsExhausted) {
+        this.lungs = Math.max(0, this.lungs - dt * 0.24);
+        if (this.lungs <= 0) {
+          this.lungsExhausted = true;
+          this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 70, text: '呼…换口气！', color: '#e0f2fe', life: 1 });
+        }
+      } else {
+        this.lungs = Math.min(1, this.lungs + dt * 0.2);
+        if (this.lungsExhausted && this.lungs >= 0.35) this.lungsExhausted = false;
+      }
+      if (this.lungsExhausted) rawBreath = 0;
       this.breath = lerp(this.breath, rawBreath, 1 - Math.exp(-dt * 6));
-      this.breathPeak = Math.max(this.breathPeak - dt * 0.6, inp.breath);
+      this.breathPeak = Math.max(this.breathPeak - dt * 0.6, this.breathGate ? inp.micBreath : 0);
       if (this.breath > 0.1) {
         const b = this.breath;
-        p.gustCooldown = Math.max(0, p.gustCooldown - dt * b * 1.6);
+        // Only real breath into the phone recharges the big gust (a held key is just a gentle breeze)
+        if (inp.micBreath > 0.26) p.gustCooldown = Math.max(0, p.gustCooldown - dt * b * 1.2);
         const bx = this._playerWorldX();
         const by = this._playerWorldY();
         for (const eb of this.enemyBullets) {
@@ -923,7 +980,7 @@
         const targetCruise = inp.vy < 0
           ? lerp(310, 610, -inp.vy)
           : lerp(310, 155, inp.vy);
-        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise + this.breath * 170, 1 - Math.exp(-dt * 8));
+        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * 8));
         p.vy = -p.cruiseSpeed;
 
         p.worldX += p.vx * dt;
@@ -943,7 +1000,8 @@
         p.worldY -= p.cruiseSpeed * dt;
       }
 
-      this.distanceKm += (p.cruiseSpeed / 420) * dt;
+      this.distanceKm += ((p.cruiseSpeed + this.breath * 170) / 420) * dt;
+      p.vxSmooth = lerp(p.vxSmooth || 0, p.vx, 1 - Math.exp(-dt * 1.0)); // ~1s low-pass for spawn lead
 
       const px = this._playerWorldX();
       const py = this._playerWorldY();
@@ -1083,7 +1141,7 @@
     _aimAngle(x, y, speed) {
       const px = this._playerWorldX();
       const py = this._playerWorldY();
-      const t = Math.hypot(px - x, py - y) / Math.max(60, speed);
+      const t = Math.hypot(px - x, py - y) / Math.max(60, speed * this.tier.bulletSpeed);
       const leadX = this.player.vx * t * (this.rig.mode === 'tabletop' ? 0.8 : 0.45);
       return Math.atan2(py - y, px + leadX - x);
     }
@@ -1132,7 +1190,10 @@
 
     _spawnGroup(type, px, py, topSpawnY, difficulty) {
       // Meet a strafing craft where it will be by the time this group reaches its altitude (~2.5s)
-      if (this.rig.mode === 'tabletop') px += this.player.vx * 2.4;
+      if (this.rig.mode === 'tabletop') {
+        // Smoothed velocity: a sustained strafe gets full lead, a left-right dodger (≈0 average) gets almost none
+        px += clamp((this.player.vxSmooth || 0) * 2.4, -this.width, this.width);
+      }
       const spanW = Math.min(this.width * 0.84, 760);
       const base = (extra) => ({ phase: Math.random() * Math.PI * 2, age: 0, hitFlash: 0, ...extra });
 
@@ -1273,7 +1334,8 @@
 
     _damageEnemy(e, dmg, indexInArray) {
       if (e.dead) return;
-      if (e.bossKind === 'fog' && !(e.unveiled > 0) && dmg < 1e6) dmg *= 0.35;
+      if (e.bossKind === 'fog' && !(e.unveiled > 0) && dmg < 1e6) dmg *= 0.5;
+      if ((e.launchShield > 0 || e.blownBack) && dmg < 1e6 && !this._nuking) return; // fresh hangar escorts: blow them back!
       e.hp -= dmg;
       e.hitFlash = 0.08;
 
@@ -1361,7 +1423,7 @@
       this.bossCooldown = clearedWave === STORY_CHAPTERS.length ? 45 : 38;
       // Expire (rather than truncate) projectiles & lanes: this can run from inside their own update loops
       for (const b of this.enemyBullets) b.life = 0;
-      for (const hz of this.hazards) { hz.warn = 0; hz.active = 0; }
+      for (const hz of this.hazards) hz.dead = true;
       this.slowMo = 1.3;
       this.screenShake = 24;
       this.flashAlpha = 0.55;
@@ -1469,6 +1531,7 @@
         const e = this.enemies[i];
         if (!e) continue;
         if (e.hitFlash > 0) e.hitFlash -= dt;
+        if (e.launchShield > 0) e.launchShield -= dt;
         e.phase = (e.phase || 0) + dt * 3;
         e.age = (e.age || 0) + dt;
 
@@ -1491,7 +1554,7 @@
               this.enemies.splice(i, 1);
               e.dead = true;
               this.score += 150;
-              this._damageEnemy(boss, 260);
+              this._damageEnemy(boss, 180);
               continue;
             }
           }
@@ -1634,6 +1697,14 @@
       if (e.unveiled > 0) {
         e.unveiled -= dt;
         if (e.unveiled <= 0) this.floatingTexts.push({ x: e.x, y: e.y + 90, text: '灰雾重新聚拢……', color: '#cbd5e1', life: 1.2 });
+      } else if (e.bossKind === 'fog') {
+        // Remind (tablet + phone buzz) every 8s while the fog armour is still up
+        e.blowPrompt = (e.blowPrompt === undefined ? 3 : e.blowPrompt) - dt;
+        if (e.blowPrompt <= 0) {
+          e.blowPrompt = 8;
+          this.floatingTexts.push({ x: e.x, y: e.y + 96, text: '💨 吹一口气，吹散灰雾护甲！', color: '#e0f2fe', life: 1.8, big: true });
+          this.onTelemetry({ warn: 'blow' });
+        }
       }
       const loopBoost = 1 + this.loopIndex * 0.12;
       const rate = (e.enraged ? 0.78 : 1) / loopBoost;
@@ -1745,7 +1816,7 @@
             this.enemies.push({
               type: 'scout', x: e.x + side * (50 + k * 14), y: e.y + 20, vx: side * 120, vy: 140,
               hp: 22 * this._difficulty(), maxHp: 22 * this._difficulty(), radius: 18,
-              fireTimer: 0.8 + k * 0.2, phase: k, age: 0, hitFlash: 0, scoreVal: 90, fromHangar: true
+              fireTimer: 1.4 + k * 0.2, phase: k, age: 0, hitFlash: 0, scoreVal: 90, fromHangar: true, launchShield: 1.3
             });
           }
           this.shockwaves.push({ x: e.x, y: e.y + 20, r: 10, maxR: 90, color: def.accent, life: 0.35, maxLife: 0.35, width: 4 });
@@ -1779,6 +1850,10 @@
       for (let i = this.hazards.length - 1; i >= 0; i--) {
         const hz = this.hazards[i];
         if (!hz) continue;
+        if (hz.dead) {
+          this.hazards.splice(i, 1);
+          continue;
+        }
         if (hz.warn > 0) {
           hz.warn -= dt;
           if (hz.warn <= 0) {
@@ -1822,6 +1897,7 @@
         r,
         grazed: false,
         reflected: false,
+        born: this.time,
         life: 5.5
       });
     }
@@ -1835,7 +1911,7 @@
       for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
         const b = this.enemyBullets[i];
         if (!b) continue;
-        if (this.player.gustTimer > 0 && !b.reflected) {
+        if (this.player.gustTimer > 0 && !b.reflected && b.born <= this.player.gustStartedAt) {
           b.vy -= 1400 * dt;
           b.reflected = true;
           b.color = '#06b6d4';
@@ -2164,6 +2240,7 @@
         railReady: p.railCooldown <= 0 ? 1 : 0,
         bossHp: this.boss ? Number((this.boss.hp / this.boss.maxHp).toFixed(2)) : 0,
         bossName: this.boss ? this.boss.name : '',
+        victoryHold: this.victoryHold,
         shield: p.shield,
         droneCount: p.droneCount,
         combo: this.combo,
@@ -2360,6 +2437,7 @@
 
     _renderHazards(ctx, py, H) {
       for (const hz of this.hazards) {
+        if (hz.dead) continue;
         const top = py - H * 1.3;
         const bottom = py + H * 0.6;
         if (hz.warn > 0) {
@@ -2548,7 +2626,7 @@
       const rw = this.rig.width;
       const rl = this.rig.length;
       const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
-      const boost = clamp((p.cruiseSpeed - 260) / 320, 0, 1);
+      const boost = clamp((p.cruiseSpeed - 260) / 320 + this.breath * 0.6, 0, 1);
       const onTitle = this.phase === 'title';
 
       ctx.save();
@@ -2602,14 +2680,23 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        const cg = ctx.createRadialGradient(0, noseY - 6, 2, 0, noseY - 6, r * 1.5);
+        const sinceFull = this.fullChargeAt !== null && this.fullChargeAt !== undefined ? this.time - this.fullChargeAt : -1;
+        const inWindow = sinceFull >= 0 && sinceFull <= 0.45;
+        const overheat = sinceFull > 0.45;
+        const cg = ctx.createRadialGradient(0, noseY - 6, 2, 0, noseY - 6, r * (inWindow ? 2.1 : 1.5));
         cg.addColorStop(0, '#ffffff');
-        cg.addColorStop(0.45, '#67e8f9');
+        cg.addColorStop(0.45, overheat ? '#f87171' : (inWindow ? '#fef9c3' : '#67e8f9'));
         cg.addColorStop(1, 'rgba(56, 189, 248, 0)');
         ctx.fillStyle = cg;
         ctx.beginPath();
-        ctx.arc(0, noseY - 6, r * 1.5, 0, Math.PI * 2);
+        ctx.arc(0, noseY - 6, r * (inWindow ? 2.1 : 1.5), 0, Math.PI * 2);
         ctx.fill();
+        if (inWindow || overheat) {
+          ctx.font = '800 13px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = inWindow ? '#fef08a' : '#fca5a5';
+          ctx.fillText(inWindow ? '松手！' : '过热', 0, noseY - r * 2.2 - 8);
+        }
       } else if (!onTitle && p.fireCooldown > 0.065) {
         ctx.fillStyle = 'rgba(254, 240, 138, 0.92)';
         ctx.beginPath();
@@ -2951,6 +3038,20 @@
           ctx.lineTo(0, py - e.y + 120);
           ctx.stroke();
           ctx.setLineDash([]);
+        }
+
+        if (e.launchShield > 0 || e.blownBack) {
+          ctx.strokeStyle = `rgba(103, 232, 249, ${(0.5 + Math.sin(this.time * 16) * 0.3).toFixed(2)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, 26, 0, Math.PI * 2);
+          ctx.stroke();
+          if (e.launchShield > 0) {
+            ctx.fillStyle = '#e0f2fe';
+            ctx.font = '800 12px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('吹!', 0, -32);
+          }
         }
 
         if (e.isBoss) {
@@ -3590,14 +3691,15 @@
         ctx.fillStyle = '#facc15';
         ctx.fillText(`★ 金星连锁 ${this.medalValue}`, 22, 108);
       }
-      if (this.breath > 0.1) {
+      if (this.breath > 0.1 || this.lungs < 0.999) {
+        // Lung gauge: drains while blowing, refills while resting
         const gx = 150;
-        ctx.fillStyle = '#a5f3fc';
-        ctx.fillText('🍃 顺风推进', gx, 108);
+        ctx.fillStyle = this.lungsExhausted ? '#94a3b8' : '#a5f3fc';
+        ctx.fillText(this.lungsExhausted ? '🫁 换气中' : '🍃 顺风推进', gx, 108);
         ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
         ctx.fillRect(gx + 70, 101, 80, 6);
-        ctx.fillStyle = '#67e8f9';
-        ctx.fillRect(gx + 70, 101, 80 * clamp(this.breath, 0, 1), 6);
+        ctx.fillStyle = this.lungsExhausted ? '#64748b' : '#67e8f9';
+        ctx.fillRect(gx + 70, 101, 80 * clamp(this.lungs, 0, 1), 6);
       }
       ctx.restore();
     }
