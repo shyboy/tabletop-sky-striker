@@ -16,21 +16,21 @@
       id: 1,
       title: '第一航段 · 晴空借风',
       subtitle: '它自己没有引擎，那就让整片云海替它往后跑。',
-      bossWarn: '⚠ 灰雾封锁舰接近 —— 别让它遮住桌面的天窗！',
+      bossWarn: '灰雾护甲会吸收大部分火力 —— 对手机吹一口顺风，把雾吹散再集火！',
       sky: 'day'
     },
     {
       id: 2,
       title: '第二航段 · 暮色穿云',
       subtitle: '拉下磁轨栓，或吹一口真气——你的呼吸就是它的八级顺风。',
-      bossWarn: '⚠ 风暴铁幕舰拦路 —— 冲破这层晚霞封锁线！',
+      bossWarn: '黄色虚线是闪电预警 —— 躲开，或者吹一口顺风把闪电吹偏！',
       sky: 'sunset'
     },
     {
       id: 3,
       title: '第三航段 · 星海灯塔',
       subtitle: '只要你还握着操纵杆，桌上这件小小旧物就是今晚的王牌机长。',
-      bossWarn: '⚠ 深空母舰降临 —— 守住最后一扇云端天窗！',
+      bossWarn: '母舰放出护航机时吹气，把它们倒吹回母舰！满蓄力磁轨炮专克狂暴核心。',
       sky: 'night'
     }
   ];
@@ -49,6 +49,13 @@
     [['scout', 30], ['gunship', 18], ['lancer', 14], ['weaver', 20], ['bomber', 10], ['mine', 8]],
     [['scout', 24], ['gunship', 14], ['lancer', 14], ['weaver', 18], ['bomber', 12], ['sentinel', 12], ['mine', 6]]
   ];
+
+  // Difficulty tiers (亲子护航 invincibility is a separate toggle on top of these)
+  const DIFFICULTY = {
+    easy: { label: '轻松', dmg: 0.55, bulletSpeed: 0.8, spawn: 1.3 },
+    normal: { label: '标准', dmg: 1, bulletSpeed: 1, spawn: 1 },
+    ace: { label: '王牌', dmg: 1.35, bulletSpeed: 1.15, spawn: 0.82 }
+  };
 
   const BEST_KEY = 'skyStriker.best.v1';
   function loadBest() {
@@ -95,7 +102,8 @@
         length: 118,        // Physical toy length in CSS px
         anchorY: 0.75,      // Screen vertical anchor ratio (0.52..0.86)
         pureCamera: false,  // Hide all HUD for clean video shooting
-        godMode: false      // Kid-friendly invincible escort mode
+        godMode: false,     // Kid-friendly invincible escort mode
+        difficulty: 'normal' // 'easy' | 'normal' | 'ace'
       };
 
       this.calibHighlightTimer = 0;
@@ -150,6 +158,13 @@
       this.hazards = [];
       this.bossIntro = 0;
       this.bossCooldown = 35; // minimum flight time before the first blockade
+      this.breath = 0;        // smoothed sustained-breath level (phone mic / held key)
+      this.breathPeak = 0;    // recent peak, scales the strength of a gust
+      this.breezeAccum = 0;
+      this.hitsTaken = 0;
+      this.victoryHold = false;
+      this.victoryHoldTimer = 0;
+      this.warnThrottle = 0;
 
       this.player = {
         worldX: 0,
@@ -260,6 +275,7 @@
     setManualPause(flag) {
       if (this.phase !== 'playing') return;
       this.manualPaused = Boolean(flag);
+      if (!this.manualPaused) this.victoryHold = false; // resuming from the victory card = continue on the endless route
       this.keys.clear();
       this.pointerDrag.active = false;
       this.onStateChange(this.getPublicState());
@@ -269,6 +285,17 @@
       if (this.phase !== 'playing') return false;
       this.setManualPause(!this.manualPaused);
       return this.manualPaused;
+    }
+
+    // End the voyage voluntarily (from the victory card): straight to the flight-log summary
+    finishVoyage() {
+      if (this.phase !== 'playing') return;
+      this.victoryHold = false;
+      this.manualPaused = false;
+      this.phase = 'gameover';
+      this.gameOver = true;
+      this._endRun();
+      this.onStateChange(this.getPublicState());
     }
 
     setSetupPause(openFlag) {
@@ -326,6 +353,7 @@
       }
       if (typeof patch.pureCamera === 'boolean') this.rig.pureCamera = patch.pureCamera;
       if (typeof patch.godMode === 'boolean') this.rig.godMode = patch.godMode;
+      if (patch.difficulty && DIFFICULTY[patch.difficulty]) this.rig.difficulty = patch.difficulty;
 
       if (prevMode !== this.rig.mode) {
         // Enemy shots bake the camera speed into their velocity, so they would hang or rush after a switch
@@ -391,6 +419,8 @@
         droneCount: this.player.droneCount,
         loop: this.loopIndex,
         storyCleared: this.storyCleared,
+        victoryHold: this.victoryHold,
+        hitsTaken: this.hitsTaken,
         kills: this.kills,
         bossKills: this.bossKills,
         maxCombo: this.maxCombo,
@@ -400,10 +430,11 @@
       };
     }
 
+    // Rank rewards clean flying, not score (medals make score explode)
     _rankForRun(score, bossKills, cleared) {
-      if (cleared && score >= 60000) return 'S';
+      if (cleared && this.hitsTaken <= 4 && !this.rig.godMode && this.rig.difficulty !== 'easy') return 'S';
       if (cleared || bossKills >= 2) return 'A';
-      if (bossKills >= 1 || score >= 8000) return 'B';
+      if (bossKills >= 1 || score >= 20000) return 'B';
       return 'C';
     }
 
@@ -446,9 +477,14 @@
     triggerRailgun(power = 1) {
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.railCooldown > 0 || p.railBeamTimer > 0) return false;
-      const clampedPower = clamp(power, 0.35, 1);
+      const perfect = power >= 0.95;
+      const clampedPower = perfect ? 1.25 : clamp(power, 0.35, 1);
       p.railBeamPower = clampedPower;
-      p.railBeamTimer = 0.45 + clampedPower * 0.35;
+      p.railPerfect = perfect;
+      p.railBeamTimer = 0.45 + Math.min(1, clampedPower) * 0.35 + (perfect ? 0.2 : 0);
+      if (perfect) {
+        this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 110, text: '⚡ 完美蓄力！', color: '#a5f3fc', life: 1.1, big: true });
+      }
       p.railCooldown = 1.6;
       this.remoteInput.railCharge = 0;
       this.localRailCharge = 0;
@@ -488,60 +524,88 @@
       }
       this.enemyBullets.length = 0;
 
+      this._nuking = true;
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const e = this.enemies[i];
+        if (e.isBoss && e.bossKind === 'fog') e.unveiled = Math.max(e.unveiled || 0, 4);
         this._damageEnemy(e, e.isBoss ? 260 : 9999, i);
       }
+      this._nuking = false;
       this.floatingTexts.push({ x: cx, y: cy - 70, text: 'EMP 天窗脉冲清扫！', color: '#fbbf24', life: 1.1 });
       this.onStateChange(this.getPublicState());
       return true;
     }
 
-    triggerWindGust() {
+    // power 0..1: a hard puff into the phone mic hits harder than a tap (taps default to a solid 0.75)
+    triggerWindGust(power) {
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.gustCooldown > 0) return false;
+      const pw = clamp(typeof power === 'number' ? power : Math.max(0.75, this.breathPeak), 0.4, 1);
       this.gustUsedCount++;
-      p.gustTimer = 1.25;
+      p.gustTimer = 0.9 + pw * 0.6;
       p.gustCooldown = p.gustMaxCooldown;
       p.invulnTimer = Math.max(p.invulnTimer, 0.9);
-      this.screenShake = Math.max(this.screenShake, 9);
+      this.screenShake = Math.max(this.screenShake, 6 + pw * 6);
       this.sfx.windGust();
-      this._rumbleGamepad(0.5, 320);
+      this._rumbleGamepad(0.35 + pw * 0.3, 320);
 
       const cx = this._playerWorldX();
       const cy = this._playerWorldY();
-      this.floatingTexts.push({ x: cx, y: cy - 64, text: '呼——！借来八级顺风！', color: '#ffffff', life: 1.15 });
+      const label = pw >= 0.92 ? '呼——！！十级狂风！' : (pw >= 0.7 ? '呼——！借来八级顺风！' : '呼～ 一阵小顺风');
+      this.floatingTexts.push({ x: cx, y: cy - 64, text: label, color: '#ffffff', life: 1.15, big: pw >= 0.92 });
 
-      for (let i = 0; i < 42; i++) {
+      const streaks = Math.round(24 + pw * 30);
+      for (let i = 0; i < streaks; i++) {
         this.windStreaks.push({
           ox: (Math.random() - 0.5) * this.width * 1.3,
           oy: this.height * 0.55 - Math.random() * this.height * 0.3,
           len: 90 + Math.random() * 160,
           speed: 1100 + Math.random() * 700,
-          life: 0.7 + Math.random() * 0.55
+          life: 0.7 + Math.random() * 0.55,
+          a: 0.78
         });
       }
 
       for (const eb of this.enemyBullets) {
-        eb.vy = -880 - Math.random() * 320;
+        eb.vy = -700 - pw * 400 - Math.random() * 220;
         eb.vx = (eb.x - cx) * 1.8 + (Math.random() - 0.5) * 220;
         eb.reflected = true;
         eb.color = '#67e8f9';
       }
 
+      const boss = this.boss;
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const e = this.enemies[i];
-        if (!e.isBoss) {
-          e.y -= 130;
-          e.vy = -340;
-          this._damageEnemy(e, 28, i);
+        if (e.isBoss) {
+          this._damageEnemy(e, 40 + 50 * pw, i);
+        } else if (e.fromHangar && boss) {
+          // Mothership weakness: escorts get blown straight back into their own hangar
+          e.blownBack = true;
+          e.fireTimer = 99;
         } else {
-          this._damageEnemy(e, 65, i);
+          e.y -= 90 + 60 * pw;
+          e.vy = -340;
+          this._damageEnemy(e, 18 + 22 * pw, i);
         }
       }
 
-      for (const pw of this.powerups) {
-        pw.magnet = true;
+      if (boss && !boss.dead) {
+        if (boss.bossKind === 'fog') {
+          boss.unveiled = 6 + pw * 4;
+          this.floatingTexts.push({ x: boss.x, y: boss.y + 90, text: '灰雾护甲被吹散！全力开火！', color: '#fde047', life: 1.6, big: true });
+          this._spawnExplosion(boss.x, boss.y, '#e2e8f0', 24, 320);
+        } else if (boss.bossKind === 'storm' && this.hazards.length) {
+          for (const hz of this.hazards) {
+            const dir = Math.sign(hz.x - cx) || (Math.random() < 0.5 ? -1 : 1);
+            hz.x += dir * (200 + 140 * pw);
+            if (hz.warn > 0) hz.warn += 0.25;
+          }
+          this.floatingTexts.push({ x: cx, y: cy - 96, text: '闪电被顺风吹偏！', color: '#fde68a', life: 1.3, big: true });
+        }
+      }
+
+      for (const pwp of this.powerups) {
+        pwp.magnet = true;
       }
       return true;
     }
@@ -654,7 +718,7 @@
 
         this.prevGpButtons = gp.buttons.map((b) => Boolean(b && b.pressed));
         const active = Math.abs(gx) > 0.01 || Math.abs(gy) > 0.01 || pressed(0) || pressed(7);
-        return { vx: gx, vy: gy, active, firing: pressed(0) || pressed(7) };
+        return { vx: gx, vy: gy, active, firing: pressed(0) || pressed(7), breeze: pressed(2) };
       }
       return { vx: 0, vy: 0, active: false, firing: false };
     }
@@ -704,11 +768,14 @@
       }
 
       const railCharge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
+      // Sustained breath: real mic level from the phone, or holding the gust key/button as a gentle breeze
+      const heldBreeze = this.keys.has('KeyF') || gp.breeze ? 0.5 : 0;
       return {
         vx,
         vy,
         firing: this.remoteInput.firing || gp.firing || kx !== 0 || ky !== 0 || this.pointerDrag.active,
-        railCharge
+        railCharge,
+        breath: Math.max(this.remoteInput.micLevel || 0, heldBreeze)
       };
     }
 
@@ -786,6 +853,46 @@
         this.comboTimer -= dt;
         if (this.comboTimer <= 0) this.combo = 0;
       }
+      if (this.warnThrottle > 0) this.warnThrottle -= dt;
+      if (this.victoryHoldTimer > 0) {
+        this.victoryHoldTimer -= dt;
+        if (this.victoryHoldTimer <= 0 && this.phase === 'playing') {
+          this.victoryHold = true;
+          this.setManualPause(true);
+          return;
+        }
+      }
+
+      // "借风": a soft, sustained blow is a tailwind — it slows incoming fire, pulls in loot and recharges the big gust
+      const rawBreath = inp.breath > 0.16 ? inp.breath : 0;
+      this.breath = lerp(this.breath, rawBreath, 1 - Math.exp(-dt * 6));
+      this.breathPeak = Math.max(this.breathPeak - dt * 0.6, inp.breath);
+      if (this.breath > 0.1) {
+        const b = this.breath;
+        p.gustCooldown = Math.max(0, p.gustCooldown - dt * b * 1.6);
+        const bx = this._playerWorldX();
+        const by = this._playerWorldY();
+        for (const eb of this.enemyBullets) {
+          if (eb.reflected) continue;
+          const d = Math.hypot(eb.x - bx, eb.y - by);
+          if (d < 320) eb.vy -= 520 * b * dt * (1 - d / 320); // headwind for enemy shots near the craft
+        }
+        for (const pwp of this.powerups) {
+          if (Math.hypot(pwp.x - bx, pwp.y - by) < 190 + 260 * b) pwp.magnet = true;
+        }
+        this.breezeAccum += dt * (6 + b * 30);
+        while (this.breezeAccum >= 1 && this.windStreaks.length < 90) {
+          this.breezeAccum -= 1;
+          this.windStreaks.push({
+            ox: (Math.random() - 0.5) * this.width * 1.2,
+            oy: (Math.random() - 0.5) * this.height * 0.9,
+            len: 40 + Math.random() * 80 * b,
+            speed: 700 + Math.random() * 500,
+            life: 0.45 + Math.random() * 0.3,
+            a: 0.25 + b * 0.35
+          });
+        }
+      }
 
       // Cockpit low-HP warning + chapter ambience (storm thunder & lightning on the sunset leg)
       if (p.hp <= 30 && !this.rig.godMode) {
@@ -816,7 +923,7 @@
         const targetCruise = inp.vy < 0
           ? lerp(310, 610, -inp.vy)
           : lerp(310, 155, inp.vy);
-        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * 8));
+        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise + this.breath * 170, 1 - Math.exp(-dt * 8));
         p.vy = -p.cruiseSpeed;
 
         p.worldX += p.vx * dt;
@@ -871,7 +978,9 @@
         for (let i = this.enemies.length - 1; i >= 0; i--) {
           const e = this.enemies[i];
           if (Math.abs(e.x - px) <= beamHalfW + e.radius && e.y <= muzzleY + 20 && e.y >= topReachY) {
-            this._damageEnemy(e, (260 + 220 * p.railBeamPower) * dt, i);
+            // A perfect (fully charged) shot is the answer to an enraged boss core
+            const coreBonus = p.railPerfect && e.isBoss && e.enraged ? 2 : 1;
+            this._damageEnemy(e, (260 + 220 * p.railBeamPower) * coreBonus * dt, i);
           }
         }
       }
@@ -970,6 +1079,19 @@
       }
     }
 
+    // Aim with lead: in tabletop the craft can strafe at ~490px/s, so pure aimed fire would always trail behind
+    _aimAngle(x, y, speed) {
+      const px = this._playerWorldX();
+      const py = this._playerWorldY();
+      const t = Math.hypot(px - x, py - y) / Math.max(60, speed);
+      const leadX = this.player.vx * t * (this.rig.mode === 'tabletop' ? 0.8 : 0.45);
+      return Math.atan2(py - y, px + leadX - x);
+    }
+
+    get tier() {
+      return DIFFICULTY[this.rig.difficulty] || DIFFICULTY.normal;
+    }
+
     _difficulty() {
       return 1 + (this.wave - 1) * 0.22 + Math.min(1.5, this.time / 120);
     }
@@ -993,7 +1115,7 @@
       if (this.spawnTimer > 0) return;
 
       const difficulty = this._difficulty();
-      this.spawnTimer = this.boss ? 2.3 : Math.max(0.55, 1.45 - difficulty * 0.16);
+      this.spawnTimer = (this.boss ? 2.3 : Math.max(0.55, 1.45 - difficulty * 0.16)) * this.tier.spawn;
 
       // Bosses only get light escorts; the story table decides the rest
       const table = SPAWN_TABLES[this.getCurrentChapter().idx];
@@ -1009,6 +1131,8 @@
     }
 
     _spawnGroup(type, px, py, topSpawnY, difficulty) {
+      // Meet a strafing craft where it will be by the time this group reaches its altitude (~2.5s)
+      if (this.rig.mode === 'tabletop') px += this.player.vx * 2.4;
       const spanW = Math.min(this.width * 0.84, 760);
       const base = (extra) => ({ phase: Math.random() * Math.PI * 2, age: 0, hitFlash: 0, ...extra });
 
@@ -1149,6 +1273,7 @@
 
     _damageEnemy(e, dmg, indexInArray) {
       if (e.dead) return;
+      if (e.bossKind === 'fog' && !(e.unveiled > 0) && dmg < 1e6) dmg *= 0.35;
       e.hp -= dmg;
       e.hitFlash = 0.08;
 
@@ -1160,6 +1285,7 @@
         this.flashAlpha = Math.max(this.flashAlpha, 0.22);
         this._sfx('bossPhase');
         this._rumbleGamepad(0.7, 300);
+        this.onTelemetry({ warn: 'enrage' });
         this.shockwaves.push({ x: e.x, y: e.y, r: 40, maxR: 260, color: BOSS_DEFS[e.bossKind].trim, life: 0.6, maxLife: 0.6, width: 9 });
         this.floatingTexts.push({ x: e.x, y: e.y + 96, text: `${e.name} 进入狂暴！`, color: '#fca5a5', life: 1.5, big: true });
       }
@@ -1180,9 +1306,9 @@
       const pts = Math.round(e.scoreVal * mult * (1 + this.loopIndex * 0.5));
       this.score += pts;
       this.kills++;
-      this.killsForNuke++;
+      if (!this._nuking) this.killsForNuke++;
 
-      if (this.killsForNuke >= 32) {
+      if (this.killsForNuke >= 48) {
         this.killsForNuke = 0;
         if (this.player.nukes < this.player.maxNukes) {
           this.player.nukes++;
@@ -1212,7 +1338,7 @@
           const r = Math.random();
           let kind = 'weapon';
           if (e.type === 'sentinel' || e.type === 'bomber') kind = r < 0.4 ? 'shield' : (r < 0.7 ? 'drone' : 'weapon');
-          else kind = r < 0.55 ? 'weapon' : (r < 0.72 ? 'heal' : (r < 0.86 ? 'shield' : (r < 0.94 ? 'drone' : 'nuke')));
+          else kind = r < 0.36 ? 'weapon' : (r < 0.58 ? 'heal' : (r < 0.78 ? 'shield' : (r < 0.9 ? 'drone' : 'nuke')));
           this._spawnPowerup(e.x, e.y, kind);
         } else if (Math.random() < 0.08) {
           this._spawnPowerup(e.x, e.y, Math.random() < 0.6 ? 'weapon' : 'heal');
@@ -1268,6 +1394,7 @@
 
       if (clearedWave === STORY_CHAPTERS.length && !this.storyCleared) {
         this.storyCleared = true;
+        this.victoryHoldTimer = 4.6; // let the fireworks play, then offer: continue endless or land
         this._sfx('victory');
         this.storyBanner = {
           title: '🌟 借风计划 · 三幕航段全部完成！',
@@ -1347,6 +1474,27 @@
 
         if (e.isBoss) {
           this._stepBoss(e, dt, px, py, worldStepY);
+        } else if (e.blownBack) {
+          const boss = this.boss;
+          if (!boss) {
+            e.blownBack = false;
+          } else {
+            const ang = Math.atan2(boss.y - e.y, boss.x - e.x);
+            e.x += Math.cos(ang) * 620 * dt;
+            e.y += worldStepY + Math.sin(ang) * 620 * dt;
+            if (Math.random() < dt * 40) {
+              this.particles.push({ x: e.x, y: e.y, vx: 0, vy: this._camDrift(0.6), r: 3, color: '#67e8f9', life: 0.3, maxLife: 0.3 });
+            }
+            if (Math.hypot(boss.x - e.x, boss.y - e.y) < boss.radius) {
+              this._spawnFireball(e.x, e.y, 50);
+              this.floatingTexts.push({ x: e.x, y: e.y - 20, text: '倒灌机库！', color: '#67e8f9', life: 0.9 });
+              this.enemies.splice(i, 1);
+              e.dead = true;
+              this.score += 150;
+              this._damageEnemy(boss, 260);
+              continue;
+            }
+          }
         } else if (e.type === 'lancer') {
           e.y += worldStepY + e.vy * dt;
           if (e.chargeWarn > 0) {
@@ -1365,7 +1513,7 @@
           e.y = e.baseY + Math.sin(e.age * 3.2 + e.phase) * 58;
           e.fireTimer -= dt;
           if (e.fireTimer <= 0 && Math.abs(e.x - px) < this.width * 0.45) {
-            const ang = Math.atan2(py - e.y, px - e.x);
+            const ang = this._aimAngle(e.x, e.y, 230);
             this._spawnEnemyBullet(e.x, e.y + 12, Math.cos(ang) * 230, Math.sin(ang) * 230, '#22d3ee', 5);
             e.fireTimer = 2.3;
           }
@@ -1414,6 +1562,10 @@
           if (e.armTimer < 0 && d < 135) {
             e.armTimer = 0.7;
             this._sfx('mineBeep');
+            if (this.warnThrottle <= 0) {
+              this.warnThrottle = 1.2;
+              this.onTelemetry({ warn: 'mine' });
+            }
           }
           if (e.armTimer >= 0) {
             e.armTimer -= dt;
@@ -1437,11 +1589,11 @@
           e.fireTimer -= dt;
           if (e.fireTimer <= 0 && e.y < py - 60) {
             if (e.type === 'scout') {
-              const ang = Math.atan2(py - e.y, px - e.x);
+              const ang = this._aimAngle(e.x, e.y, 245);
               this._spawnEnemyBullet(e.x, e.y + 14, Math.cos(ang) * 245, Math.sin(ang) * 245, '#e11d48', 5.5);
               e.fireTimer = 1.9;
             } else if (e.type === 'gunship') {
-              const baseAng = Math.atan2(py - e.y, px - e.x);
+              const baseAng = this._aimAngle(e.x, e.y, 255);
               for (let s = -1; s <= 1; s++) {
                 const a = baseAng + s * 0.22;
                 this._spawnEnemyBullet(e.x, e.y + 22, Math.cos(a) * 255, Math.sin(a) * 255, '#ea580c', 6);
@@ -1479,6 +1631,10 @@
       const sway = Math.min(220, this.width * 0.28) * (e.enraged ? 1.15 : 1);
       e.x = lerp(e.x, px + Math.sin(this.time * (e.enraged ? 1.25 : 0.95)) * sway, 1 - Math.exp(-dt * 2.4));
       const def = BOSS_DEFS[e.bossKind] || BOSS_DEFS.fog;
+      if (e.unveiled > 0) {
+        e.unveiled -= dt;
+        if (e.unveiled <= 0) this.floatingTexts.push({ x: e.x, y: e.y + 90, text: '灰雾重新聚拢……', color: '#cbd5e1', life: 1.2 });
+      }
       const loopBoost = 1 + this.loopIndex * 0.12;
       const rate = (e.enraged ? 0.78 : 1) / loopBoost;
 
@@ -1505,7 +1661,7 @@
       if (e.fireTimer > 0 || e.age < 1.6) return;
       e.patternIdx = (e.patternIdx + 1) % (e.enraged ? 4 : 3);
       const pat = e.patternIdx;
-      const aimAt = (ox) => Math.atan2(py - e.y, px - (e.x + ox));
+      const aimAt = (ox) => this._aimAngle(e.x + ox, e.y, 300);
 
       if (e.bossKind === 'fog') {
         if (pat === 0) {
@@ -1558,6 +1714,7 @@
             used.push(x);
             this.hazards.push({ kind: 'lane', x, halfW: 30, warn: 1.05 + k * 0.18, active: 0.42, seed: Math.random() * 100 });
           }
+          this.onTelemetry({ warn: 'lane' });
           e.fireTimer = 1.7 * rate;
         } else if (pat === 2) {
           const ang = aimAt(0);
@@ -1588,7 +1745,7 @@
             this.enemies.push({
               type: 'scout', x: e.x + side * (50 + k * 14), y: e.y + 20, vx: side * 120, vy: 140,
               hp: 22 * this._difficulty(), maxHp: 22 * this._difficulty(), radius: 18,
-              fireTimer: 0.8 + k * 0.2, phase: k, age: 0, hitFlash: 0, scoreVal: 90
+              fireTimer: 0.8 + k * 0.2, phase: k, age: 0, hitFlash: 0, scoreVal: 90, fromHangar: true
             });
           }
           this.shockwaves.push({ x: e.x, y: e.y + 20, r: 10, maxR: 90, color: def.accent, life: 0.35, maxLife: 0.35, width: 4 });
@@ -1652,6 +1809,9 @@
 
     _spawnEnemyBullet(x, y, vx, vy, color, r = 5.5) {
       if (this.enemyBullets.length > 700) return;
+      const spd = this.tier.bulletSpeed;
+      vx *= spd;
+      vy *= spd;
       const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
       this.enemyBullets.push({
         x,
@@ -1813,6 +1973,7 @@
 
       if (p.shield > 0) {
         p.shield--;
+        this.hitsTaken++;
         p.invulnTimer = 1.0;
         const sx = this._playerWorldX();
         const sy = this._playerWorldY();
@@ -1829,6 +1990,8 @@
 
       p.invulnTimer = 1.05;
       this.combo = 0;
+      this.hitsTaken++;
+      this.medalValue = 100; // getting hit breaks the gold-medal chain
       this.screenShake = 15;
       this.flashAlpha = 0.35;
       this.sfx.enemyBoom(false);
@@ -1845,7 +2008,7 @@
         return true;
       }
 
-      p.hp = Math.max(0, p.hp - amount);
+      p.hp = Math.max(0, p.hp - amount * this.tier.dmg);
       if (p.weaponLv > 1 && Math.random() < 0.35) p.weaponLv--;
       this.onTelemetry({ hitVibrate: true });
 
@@ -2581,6 +2744,8 @@
         }
       }
 
+      if (!onTitle && this.phase === 'playing') this._drawThreatRing(ctx, rw, rl);
+
       // 5. Flanking Autonomous Bit-Drones
       this._drawDroneFormation(ctx);
       this._drawShieldBubble(ctx, Math.max(rw, rl) * 0.5 + 26);
@@ -2666,6 +2831,41 @@
         ctx.fill();
       }
 
+      ctx.restore();
+    }
+
+    // Edge glow on the toy's perimeter pointing at incoming shots: the real toy covers the bullets beneath it
+    _drawThreatRing(ctx, rw, rl) {
+      const px = this._playerWorldX();
+      const py = this._playerWorldY();
+      const R = Math.max(rw, rl) * 0.5 + 16;
+      const range = R + 150;
+      const roll = this.player.cameraRoll;
+      const cos = Math.cos(roll);
+      const sin = Math.sin(roll);
+      ctx.save();
+      ctx.lineCap = 'round';
+      let drawn = 0;
+      for (const b of this.enemyBullets) {
+        if (b.reflected) continue;
+        const dx = b.x - px;
+        const dy = b.y - py;
+        const d = Math.hypot(dx, dy);
+        if (d > range || d < 1) continue;
+        // closing in? (relative velocity in the camera frame points toward the craft)
+        const rvy = b.vy + (this.rig.mode === 'tabletop' ? this.player.cruiseSpeed : 0);
+        if (dx * (b.vx - this.player.vx) + dy * rvy >= 0) continue;
+        const sx = dx * cos - dy * sin;
+        const sy = dx * sin + dy * cos;
+        const ang = Math.atan2(sy, sx);
+        const urgency = clamp(1 - (d - R) / 150, 0, 1);
+        ctx.strokeStyle = `rgba(248, 113, 113, ${(0.25 + urgency * 0.7).toFixed(2)})`;
+        ctx.lineWidth = 3 + urgency * 4;
+        ctx.beginPath();
+        ctx.arc(0, 0, R + 6, ang - 0.22, ang + 0.22);
+        ctx.stroke();
+        if (++drawn > 24) break;
+      }
       ctx.restore();
     }
 
@@ -2908,8 +3108,9 @@
       }
 
       if (e.bossKind === 'fog') {
-        // Fog vents trailing grey vapour around a hexagonal fortress
-        ctx.fillStyle = 'rgba(203, 213, 225, 0.22)';
+        // Fog vents trailing grey vapour around a hexagonal fortress (thick while the fog armour is up)
+        const shrouded = !(e.unveiled > 0);
+        ctx.fillStyle = shrouded ? 'rgba(226, 232, 240, 0.42)' : 'rgba(203, 213, 225, 0.16)';
         for (let k = 0; k < 6; k++) {
           const a = t * 0.6 + k;
           ctx.beginPath();
@@ -2932,6 +3133,16 @@
           ctx.strokeStyle = def.accent;
           ctx.lineWidth = 2;
           ctx.stroke();
+        }
+        if (shrouded) {
+          // Fog armour veil: blow it away (gust / nuke) to expose the hull
+          const veil = ctx.createRadialGradient(0, 0, 30, 0, 0, 120);
+          veil.addColorStop(0, `rgba(241, 245, 249, ${(0.32 + Math.sin(t * 2) * 0.05).toFixed(3)})`);
+          veil.addColorStop(1, 'rgba(241, 245, 249, 0)');
+          ctx.fillStyle = veil;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 120, 80, 0, 0, Math.PI * 2);
+          ctx.fill();
         }
       } else if (e.bossKind === 'storm') {
         for (const ex of [-56, -20, 20, 56]) engineGlow(ex, -44, 16 * pulse, '#fb923c');
@@ -3181,14 +3392,16 @@
       if (this.windStreaks.length === 0) return;
       ctx.save();
       ctx.translate(W * 0.5, H * 0.5);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+      ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2.6;
-      ctx.beginPath();
       for (const ws of this.windStreaks) {
+        ctx.globalAlpha = clamp((ws.a || 0.78) * Math.min(1, ws.life * 3), 0, 1);
+        ctx.beginPath();
         ctx.moveTo(ws.ox, ws.oy);
         ctx.lineTo(ws.ox, ws.oy + ws.len);
+        ctx.stroke();
       }
-      ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.restore();
     }
 
@@ -3348,7 +3561,8 @@
 
       ctx.font = '600 11.5px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(`${ch.title}${this.rig.godMode ? ' · 亲子护航' : ''}`, 22, 84, panelW - 20);
+      const tierTag = this.rig.difficulty !== 'normal' ? ` · ${this.tier.label}` : '';
+      ctx.fillText(`${ch.title}${tierTag}${this.rig.godMode ? ' · 亲子护航' : ''}`, 22, 84, panelW - 20);
 
       // Combo meter (decays with the combo timer)
       if (this.combo >= 3) {
@@ -3370,11 +3584,20 @@
           ctx.fillRect(cx + 10, 56, 84 * clamp(this.comboTimer / 3.2, 0, 1), 3);
         }
       }
+      ctx.textAlign = 'left';
+      ctx.font = '700 11px system-ui, -apple-system, sans-serif';
       if (this.medalValue > 100) {
-        ctx.textAlign = 'left';
-        ctx.font = '700 11px system-ui, -apple-system, sans-serif';
         ctx.fillStyle = '#facc15';
         ctx.fillText(`★ 金星连锁 ${this.medalValue}`, 22, 108);
+      }
+      if (this.breath > 0.1) {
+        const gx = 150;
+        ctx.fillStyle = '#a5f3fc';
+        ctx.fillText('🍃 顺风推进', gx, 108);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+        ctx.fillRect(gx + 70, 101, 80, 6);
+        ctx.fillStyle = '#67e8f9';
+        ctx.fillRect(gx + 70, 101, 80 * clamp(this.breath, 0, 1), 6);
       }
       ctx.restore();
     }

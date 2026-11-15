@@ -119,6 +119,13 @@
           sfx.enemyBoom(false);
           return;
         }
+        if (payload.warn) {
+          // Haptic telegraphs: the tablet warning may be hidden under the real toy
+          if (payload.warn === 'lane') vibrate([20, 40, 20, 40, 20]);
+          else if (payload.warn === 'mine') vibrate([12, 30, 12]);
+          else if (payload.warn === 'enrage') vibrate([120, 50, 120]);
+          return;
+        }
         const prevBoss = state.telemetry.bossHp > 0;
         Object.assign(state.telemetry, payload);
         if (!prevBoss && payload.bossHp > 0) {

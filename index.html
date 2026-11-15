@@ -447,6 +447,37 @@
       .stat-cell .new-record { animation: none; }
     }
 
+    .difficulty-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+    }
+
+    .diff-chip {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+      color: #e2e8f0;
+      border-radius: 999px;
+      padding: 0.3rem 0.75rem;
+      font: 600 0.78rem/1.2 system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+    }
+
+    .diff-chip.active {
+      border-color: #fbbf24;
+      background: rgba(251, 191, 36, 0.18);
+      color: #fde68a;
+    }
+
+    .diff-chip:focus-visible {
+      outline: 2px solid #fbbf24;
+      outline-offset: 2px;
+    }
+
     .title-best {
       margin: 0;
       font-size: 0.82rem;
@@ -917,6 +948,13 @@
         </button>
       </div>
 
+      <div class="difficulty-row" role="group" aria-label="选择难度">
+        <span>难度</span>
+        <button type="button" class="diff-chip" data-difficulty="easy">🧸 轻松 · 小朋友</button>
+        <button type="button" class="diff-chip active" data-difficulty="normal">✈️ 标准</button>
+        <button type="button" class="diff-chip" data-difficulty="ace">🔥 王牌</button>
+      </div>
+
       <div class="cta-row">
         <button type="button" id="btn-start-mission" class="cta-launch">
           🚀 点火起飞 (Enter)
@@ -942,6 +980,37 @@
     </div>
 
     <!-- 2. Manual Pause Overlay -->
+    <section id="victory-overlay" class="state-overlay" hidden aria-labelledby="victory-heading">
+      <div class="state-card">
+        <span class="state-badge">🌟 借风计划 · 三幕航段完成</span>
+        <h2 id="victory-heading">天窗守住了！</h2>
+        <p class="story-copy" style="font-size:0.86rem;">
+          灰雾散了，风暴偏了，母舰也退回了深空。桌上这件小小旧物，借着你的每一口气飞完了全程。<br>
+          可以让它在停机坪上歇一歇——也可以继续驶入难度与奖励不断升级的<strong>无尽航线</strong>。
+        </p>
+
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <span>借风里程</span>
+            <strong id="vic-dist">0.0 km</strong>
+          </div>
+          <div class="stat-cell">
+            <span>当前得分</span>
+            <strong id="vic-score">0</strong>
+          </div>
+          <div class="stat-cell">
+            <span>受击次数</span>
+            <strong id="vic-hits">0</strong>
+          </div>
+        </div>
+
+        <div class="action-stack">
+          <button type="button" id="btn-vic-continue" class="btn-block primary">♾ 继续无尽航线 (Enter)</button>
+          <button type="button" id="btn-vic-land" class="btn-block">🛬 降落停机坪 · 查看航志结算 (L)</button>
+        </div>
+      </div>
+    </section>
+
     <section id="pause-overlay" class="state-overlay" hidden aria-labelledby="pause-heading">
       <div class="state-card">
         <span class="state-badge" id="pause-chapter-badge">第一航段 · 晴空借风</span>
@@ -1170,6 +1239,7 @@
       const dialog = document.getElementById('setup-dialog');
       const titleOverlay = document.getElementById('title-overlay');
       const pauseOverlay = document.getElementById('pause-overlay');
+      const victoryOverlay = document.getElementById('victory-overlay');
       const gameoverOverlay = document.getElementById('gameover-overlay');
       const remoteCalibBanner = document.getElementById('remote-calib-banner');
       const setupPauseIndicator = document.getElementById('setup-pause-indicator');
@@ -1306,6 +1376,11 @@
         document.querySelectorAll('[data-mode]').forEach((b) => {
           b.classList.toggle('active', b.dataset.mode === st.mode);
         });
+        document.querySelectorAll('[data-difficulty]').forEach((b) => {
+          const on = b.dataset.difficulty === st.difficulty;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', String(on));
+        });
 
         titleHelipadTip.textContent = st.mode === 'tabletop'
           ? '⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内'
@@ -1321,7 +1396,15 @@
         setupPauseIndicator.hidden = !isPlaying;
         remoteCalibBanner.hidden = !(!localDialogOpen && st.setupPaused);
 
-        const showManualPauseCard = isPlaying && st.manualPaused && !st.setupPaused && !localDialogOpen;
+        const showVictoryCard = isPlaying && st.manualPaused && st.victoryHold && !st.setupPaused && !localDialogOpen;
+        victoryOverlay.hidden = !showVictoryCard;
+        if (showVictoryCard) {
+          document.getElementById('vic-dist').textContent = `${(st.distanceKm || 0).toFixed(1)} km`;
+          document.getElementById('vic-score').textContent = String(st.score || 0);
+          document.getElementById('vic-hits').textContent = `${st.hitsTaken || 0} 次`;
+        }
+
+        const showManualPauseCard = isPlaying && st.manualPaused && !st.victoryHold && !st.setupPaused && !localDialogOpen;
         pauseOverlay.hidden = !showManualPauseCard;
         if (showManualPauseCard) {
           pauseChapterBadge.textContent = st.chapterTitle || '第一航段 · 晴空借风';
@@ -1573,6 +1656,17 @@
         engine.toggleManualPause();
       });
 
+      document.getElementById('btn-vic-continue').addEventListener('click', () => {
+        sfx.unlock();
+        sfx.uiClick();
+        engine.setManualPause(false);
+      });
+      document.getElementById('btn-vic-land').addEventListener('click', () => {
+        sfx.unlock();
+        sfx.uiClick();
+        engine.finishVoyage();
+      });
+
       btnResume.addEventListener('click', () => {
         sfx.unlock();
         sfx.uiClick();
@@ -1643,6 +1737,20 @@
           sfx.unlock();
           sfx.uiClick();
           engine.updateRig({ mode: btn.dataset.mode }, true);
+        });
+      });
+
+      // Difficulty choice is remembered per browser
+      try {
+        const savedTier = localStorage.getItem('skyStriker.difficulty');
+        if (savedTier) engine.updateRig({ difficulty: savedTier }, false);
+      } catch (e) { /* storage blocked */ }
+      document.querySelectorAll('[data-difficulty]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          sfx.unlock();
+          sfx.uiClick();
+          engine.updateRig({ difficulty: btn.dataset.difficulty }, false);
+          try { localStorage.setItem('skyStriker.difficulty', btn.dataset.difficulty); } catch (e) { /* ignore */ }
         });
       });
 
@@ -1733,6 +1841,9 @@
           if (ev.code === 'Enter') {
             ev.preventDefault();
             engine.setManualPause(false);
+          } else if (ev.code === 'KeyL' && engine.victoryHold) {
+            ev.preventDefault();
+            engine.finishVoyage();
           }
           return;
         }
