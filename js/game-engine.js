@@ -328,6 +328,8 @@
       if (typeof patch.godMode === 'boolean') this.rig.godMode = patch.godMode;
 
       if (prevMode !== this.rig.mode) {
+        // Enemy shots bake the camera speed into their velocity, so they would hang or rush after a switch
+        for (const b of this.enemyBullets) b.life = 0;
         if (this.rig.mode === 'arcade') {
           this.player.screenX = this.width * 0.5;
           this.player.screenY = this.height * this.rig.anchorY;
@@ -355,7 +357,12 @@
     _shiftAllWorldEntities(dx, dy) {
       for (const b of this.bullets) { b.x += dx; b.y += dy; }
       for (const b of this.enemyBullets) { b.x += dx; b.y += dy; }
-      for (const e of this.enemies) { e.x += dx; e.y += dy; }
+      for (const e of this.enemies) {
+        e.x += dx;
+        e.y += dy;
+        if (e.baseY !== undefined) e.baseY += dy;
+      }
+      for (const hz of this.hazards) hz.x += dx;
       for (const p of this.powerups) { p.x += dx; p.y += dy; }
       for (const pt of this.particles) { pt.x += dx; pt.y += dy; }
       for (const sw of this.shockwaves) { sw.x += dx; sw.y += dy; }
@@ -576,7 +583,7 @@
 
     _syncMusic() {
       let key = 'title';
-      if (this.phase === 'playing') key = this.getEffectiveSky();
+      if (this.phase === 'playing') key = this.getCurrentChapter().sky;
       else if (this.phase === 'gameover') key = 'title';
       if (key !== this._musicKey) {
         this._musicKey = key;
@@ -707,6 +714,10 @@
 
     step(dt) {
       dt = Math.min(dt, 0.05);
+      if (this._stateDirty) {
+        this._stateDirty = false;
+        this.onStateChange(this.getPublicState());
+      }
       this._syncMusic();
       if (this.slowMo > 0 && this.phase === 'playing' && !this.isPaused) {
         this.slowMo = Math.max(0, this.slowMo - dt);
@@ -1211,7 +1222,7 @@
           this._spawnPowerup(e.x + (Math.random() - 0.5) * 20, e.y, 'medal');
         }
       }
-      this.onStateChange(this.getPublicState());
+      this._stateDirty = true; // flushed once per frame: a nuke can kill dozens at once
     }
 
     _onBossDefeated(e) {
@@ -1222,8 +1233,9 @@
       this.nextBossScore = this.score + 6000 + this.wave * 1500;
       // Breathing room: the next blockade never arrives before the new chapter has had time to play out
       this.bossCooldown = clearedWave === STORY_CHAPTERS.length ? 45 : 38;
-      this.enemyBullets.length = 0;
-      this.hazards.length = 0;
+      // Expire (rather than truncate) projectiles & lanes: this can run from inside their own update loops
+      for (const b of this.enemyBullets) b.life = 0;
+      for (const hz of this.hazards) { hz.warn = 0; hz.active = 0; }
       this.slowMo = 1.3;
       this.screenShake = 24;
       this.flashAlpha = 0.55;
@@ -1288,8 +1300,9 @@
         fx.t -= dt;
         if (fx.t > 0) continue;
         this.pendingFx.splice(i, 1);
-        const x = px + fx.dx;
-        const y = py + fx.dy;
+        const arcadeSky = fx.firework && this.rig.mode === 'arcade';
+        const x = arcadeSky ? this.width * 0.5 + fx.dx : px + fx.dx;
+        const y = arcadeSky ? this.height * 0.5 + fx.dy : py + fx.dy;
         if (fx.firework) {
           this._spawnFirework(x, y, fx.color);
         } else {
@@ -1439,10 +1452,11 @@
         }
 
         if (Math.abs(e.x - px) < e.radius + hitHalfW && Math.abs(e.y - py) < e.radius + hitHalfL) {
-          this._hurtPlayer(22);
+          const landed = this._hurtPlayer(22);
           if (!e.isBoss) {
-            this._damageEnemy(e, 9999, i);
-            continue;
+            // A real collision destroys the attacker; brushing past while invulnerable only scrapes it
+            this._damageEnemy(e, landed ? 9999 : 160 * dt, i);
+            if (e.dead) continue;
           }
         }
 
@@ -1457,7 +1471,9 @@
     }
 
     _stepBoss(e, dt, px, py, worldStepY) {
-      const desiredY = py - this.height * (this.rig.mode === 'tabletop' ? this.rig.anchorY * 0.66 : 0.52);
+      const desiredY = this.rig.mode === 'tabletop'
+        ? py - this.height * this.rig.anchorY * 0.66
+        : Math.max(110, this.height * 0.2);
       e.y += worldStepY;
       e.y = lerp(e.y, desiredY, 1 - Math.exp(-dt * 3.5));
       const sway = Math.min(220, this.width * 0.28) * (e.enraged ? 1.15 : 1);
@@ -1536,7 +1552,9 @@
           const used = [];
           for (let k = 0; k < lanes; k++) {
             let x = k === 0 ? px : px + (Math.random() - 0.5) * this.width * 0.7;
-            if (used.some((u) => Math.abs(u - x) < 110)) x += 140;
+            for (let tries = 0; tries < 6 && used.some((u) => Math.abs(u - x) < 110); tries++) {
+              x = px + (Math.random() - 0.5) * this.width * 0.8;
+            }
             used.push(x);
             this.hazards.push({ kind: 'lane', x, halfW: 30, warn: 1.05 + k * 0.18, active: 0.42, seed: Math.random() * 100 });
           }
@@ -1603,6 +1621,7 @@
       const hitHalfW = this.rig.mode === 'tabletop' ? this.rig.width * 0.24 : 15;
       for (let i = this.hazards.length - 1; i >= 0; i--) {
         const hz = this.hazards[i];
+        if (!hz) continue;
         if (hz.warn > 0) {
           hz.warn -= dt;
           if (hz.warn <= 0) {
@@ -1613,7 +1632,13 @@
           continue;
         }
         hz.active -= dt;
-        if (Math.abs(px - hz.x) < hz.halfW + hitHalfW) this._hurtPlayer(18);
+        if (Math.abs(px - hz.x) < hz.halfW + hitHalfW) {
+          this._hurtPlayer(18);
+          if (this.phase !== 'playing') {
+            this.hazards.length = 0;
+            return;
+          }
+        }
         // Lightning also scorches any non-boss enemy caught in the lane
         for (let j = this.enemies.length - 1; j >= 0; j--) {
           const e = this.enemies[j];
@@ -1649,6 +1674,7 @@
 
       for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
         const b = this.enemyBullets[i];
+        if (!b) continue;
         if (this.player.gustTimer > 0 && !b.reflected) {
           b.vy -= 1400 * dt;
           b.reflected = true;
@@ -1769,7 +1795,7 @@
           }
           this.floatingTexts.push({ x: px, y: py - 45, text, color, life: pw.kind === 'medal' ? 0.7 : 1.15, small: pw.kind === 'medal' });
           this.powerups.splice(i, 1);
-          if (pw.kind !== 'medal') this.onStateChange(this.getPublicState());
+          if (pw.kind !== 'medal') this._stateDirty = true;
           continue;
         }
 
@@ -1783,7 +1809,7 @@
 
     _hurtPlayer(amount) {
       const p = this.player;
-      if (p.invulnTimer > 0 || this.phase !== 'playing') return;
+      if (p.invulnTimer > 0 || this.phase !== 'playing') return false;
 
       if (p.shield > 0) {
         p.shield--;
@@ -1798,7 +1824,7 @@
         this.floatingTexts.push({ x: sx, y: sy - 52, text: '能量护盾抵消！', color: '#67e8f9', life: 1.0 });
         this.onTelemetry({ hitVibrate: true });
         this.onStateChange(this.getPublicState());
-        return;
+        return true;
       }
 
       p.invulnTimer = 1.05;
@@ -1816,7 +1842,7 @@
       if (this.rig.godMode) {
         this.floatingTexts.push({ x: px, y: py - 48, text: '亲子护航抵消伤害', color: '#fef08a', life: 0.9 });
         this.onTelemetry({ hitVibrate: true });
-        return;
+        return true;
       }
 
       p.hp = Math.max(0, p.hp - amount);
@@ -1826,12 +1852,12 @@
       if (p.hp <= 0) {
         this.phase = 'gameover';
         this.gameOver = true;
-        this.hazards.length = 0;
         this._spawnExplosion(px, py, '#fb923c', 36, 300);
         this._spawnFireball(px, py, 90);
         this._endRun();
       }
       this.onStateChange(this.getPublicState());
+      return true;
     }
 
     _camDrift(f) {
@@ -1841,7 +1867,7 @@
     // Bright core flash that blooms outward, followed by lingering smoke puffs
     _spawnFireball(x, y, size = 40) {
       if (this.particles.length > 1100) return;
-      this.particles.push({ kind: 'flash', x, y, vx: 0, vy: this._camDrift(0.9), r: size * 0.35, grow: size * 2.4, color: '#fff7ed', life: 0.32, maxLife: 0.32 });
+      this.particles.push({ kind: 'flash', df: 0.9, x, y, vx: 0, vy: this._camDrift(0.9), r: size * 0.35, grow: size * 2.4, color: '#fff7ed', life: 0.32, maxLife: 0.32 });
       const puffs = Math.min(6, 2 + Math.floor(size / 30));
       size = Math.min(size, 70); // keep smoke from swallowing the screen after huge blasts
       for (let i = 0; i < puffs; i++) {
@@ -1849,7 +1875,7 @@
         const spd = 20 + Math.random() * size * 0.9;
         const life = 0.7 + Math.random() * 0.6;
         this.particles.push({
-          kind: 'smoke', x: x + Math.cos(ang) * size * 0.2, y: y + Math.sin(ang) * size * 0.2,
+          kind: 'smoke', df: 0.85, x: x + Math.cos(ang) * size * 0.2, y: y + Math.sin(ang) * size * 0.2,
           vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd + this._camDrift(0.85),
           r: size * (0.18 + Math.random() * 0.12), grow: size * 0.55, drag: 2.2,
           color: 'rgba(71, 85, 105, 0.55)', life, maxLife: life
@@ -1863,7 +1889,7 @@
         const spd = 90 + Math.random() * 260;
         const life = 0.6 + Math.random() * 0.6;
         this.particles.push({
-          kind: 'debris', x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd + this._camDrift(0.6),
+          kind: 'debris', df: 0.6, x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd + this._camDrift(0.6),
           r: 3 + Math.random() * 6, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 18, drag: 1.4,
           color, life, maxLife: life
         });
@@ -1872,14 +1898,14 @@
 
     _spawnFirework(x, y, color) {
       this._sfx('medal', 6 + Math.floor(Math.random() * 4));
-      this.particles.push({ kind: 'flash', x, y, vx: 0, vy: this._camDrift(1), r: 10, grow: 160, color, life: 0.3, maxLife: 0.3 });
+      this.particles.push({ kind: 'flash', df: 1, x, y, vx: 0, vy: this._camDrift(1), r: 10, grow: 160, color, life: 0.3, maxLife: 0.3 });
       const n = 34;
       for (let i = 0; i < n && this.particles.length < 1200; i++) {
         const ang = (i / n) * Math.PI * 2 + Math.random() * 0.1;
         const spd = 180 + Math.random() * 120;
         const life = 1.0 + Math.random() * 0.5;
         this.particles.push({
-          kind: 'spark', x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd + this._camDrift(1),
+          kind: 'spark', df: 1, x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd + this._camDrift(1),
           r: 2.6, drag: 1.6, gravity: 90, color, life, maxLife: life
         });
       }
@@ -1909,7 +1935,7 @@
         const pt = this.particles[i];
         if (pt.drag) {
           // Drag only acts on the particle's own motion, not the camera drift baked into vy
-          const drift = pt.kind === 'spark' ? this._camDrift(1) : (pt.kind === 'smoke' ? this._camDrift(0.85) : this._camDrift(0.6));
+          const drift = this._camDrift(pt.df || 0.6);
           const k = Math.exp(-pt.drag * dt);
           pt.vx *= k;
           pt.vy = drift + (pt.vy - drift) * k;
@@ -1919,6 +1945,8 @@
         if (pt.vr) pt.rot += pt.vr * dt;
         pt.x += pt.vx * dt;
         pt.y += pt.vy * dt;
+        // Once the voyage stops (game over) the camera no longer moves, so cancel the baked-in drift
+        if (this.phase === 'gameover') pt.y -= this._camDrift(pt.df || 0.6) * dt;
         pt.life -= dt;
         if (pt.life <= 0) this.particles.splice(i, 1);
       }
@@ -2043,7 +2071,7 @@
         ctx.restore();
       }
       if (this.phase !== 'title') {
-        this._renderHazards(ctx, py, H);
+        if (this.phase === 'playing') this._renderHazards(ctx, py, H);
         this._renderPowerups(ctx);
         this._renderEnemies(ctx, py);
         this._renderBullets(ctx);
@@ -2915,11 +2943,12 @@
         hitTint();
         ctx.stroke();
         // Crackling arcs between the wingtips
-        ctx.strokeStyle = `rgba(253, 230, 138, ${(0.45 + Math.random() * 0.5).toFixed(2)})`;
+        const arcSeed = Math.floor(t * 24);
+        ctx.strokeStyle = `rgba(253, 230, 138, ${(0.45 + hash2D(arcSeed, 3) * 0.5).toFixed(2)})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(-92, 8);
-        for (let k = 1; k <= 8; k++) ctx.lineTo(-92 + k * 23, 8 + (Math.random() - 0.5) * 22);
+        for (let k = 1; k <= 8; k++) ctx.lineTo(-92 + k * 23, 8 + (hash2D(arcSeed, k) - 0.5) * 22);
         ctx.stroke();
       } else {
         // Mothership: wide crescent disc with a rotating ring of hangar lights
@@ -2966,20 +2995,36 @@
       }
 
       for (const eb of this.enemyBullets) {
-        ctx.globalAlpha = 0.28;
-        ctx.fillStyle = eb.color;
-        ctx.beginPath();
-        ctx.arc(eb.x, eb.y, eb.r * 1.8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.beginPath();
-        ctx.arc(eb.x, eb.y, eb.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(eb.x, eb.y, eb.r * 0.45, 0, Math.PI * 2);
-        ctx.fill();
+        const spr = this._bulletSprite(eb.color, eb.r);
+        ctx.drawImage(spr.canvas, eb.x - spr.half, eb.y - spr.half, spr.half * 2, spr.half * 2);
       }
+    }
+
+    // Pre-rendered halo + body + core per (colour, radius): hundreds of bullets become cheap drawImage calls
+    _bulletSprite(color, r) {
+      if (!this._spriteCache) this._spriteCache = new Map();
+      const key = `${color}|${r}`;
+      let spr = this._spriteCache.get(key);
+      if (spr) return spr;
+      const half = Math.ceil(r * 1.8) + 1;
+      const scale = 2;
+      const c = (global.document && global.document.createElement) ? global.document.createElement('canvas') : null;
+      if (!c) return { canvas: { width: 0 }, half: 0 };
+      c.width = c.height = half * 2 * scale;
+      const g = c.getContext('2d');
+      g.scale(scale, scale);
+      g.translate(half, half);
+      g.globalAlpha = 0.28;
+      g.fillStyle = color;
+      g.beginPath(); g.arc(0, 0, r * 1.8, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = 1;
+      g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffffff';
+      g.beginPath(); g.arc(0, 0, r * 0.45, 0, Math.PI * 2); g.fill();
+      spr = { canvas: c, half };
+      if (this._spriteCache.size > 64) this._spriteCache.clear();
+      this._spriteCache.set(key, spr);
+      return spr;
     }
 
     _renderPowerups(ctx) {
@@ -3067,6 +3112,7 @@
       for (const pt of this.particles) {
         const a = clamp(pt.life / pt.maxLife, 0, 1);
         if (pt.kind === 'flash') {
+          ctx.globalAlpha = 1;
           const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.r);
           g.addColorStop(0, `rgba(255, 255, 255, ${(0.95 * a).toFixed(3)})`);
           g.addColorStop(0.35, `rgba(253, 186, 116, ${(0.7 * a).toFixed(3)})`);

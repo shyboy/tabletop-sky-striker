@@ -1773,11 +1773,17 @@
 
       let lastTs = performance.now();
       function frame(now) {
+        // Schedule first so an unexpected exception degrades one frame instead of freezing the battlefield
+        requestAnimationFrame(frame);
         const dt = (now - lastTs) / 1000;
         lastTs = now;
-        engine.step(dt);
-        engine.render();
-        requestAnimationFrame(frame);
+        try {
+          engine.step(dt);
+          engine.render();
+        } catch (err) {
+          console.error('[SkyStriker] frame error', err);
+          if (engine.ctx.reset) engine.ctx.reset();
+        }
       }
       requestAnimationFrame(frame);
 
