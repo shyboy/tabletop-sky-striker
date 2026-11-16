@@ -119,6 +119,15 @@
           sfx.enemyBoom(false);
           return;
         }
+        if (payload.warn) {
+          // Haptic telegraphs: the tablet warning may be hidden under the real toy
+          if (payload.warn === 'lane') vibrate([20, 40, 20, 40, 20]);
+          else if (payload.warn === 'mine') vibrate([12, 30, 12]);
+          else if (payload.warn === 'enrage') vibrate([120, 50, 120]);
+          else if (payload.warn === 'perfect') vibrate(60);
+          else if (payload.warn === 'blow') vibrate([30, 30, 30, 30, 90]);
+          return;
+        }
         const prevBoss = state.telemetry.bossHp > 0;
         Object.assign(state.telemetry, payload);
         if (!prevBoss && payload.bossHp > 0) {
@@ -345,7 +354,7 @@
       vibrate(25);
       sfx.uiClick();
       if (calibDialog.open) calibDialog.close();
-      bridge.send('setPause', { paused: false });
+      bridge.send('setPause', { paused: false }); // on the victory card this continues the endless route
       return;
     }
     if (t.nukes > 0) {
@@ -440,7 +449,8 @@
     sfx.uiClick();
     vibrate([25, 25]);
     if (calibDialog.open) calibDialog.close();
-    bridge.send('stopToTitle');
+    // On the victory card, "land" means: end the voyage and show the flight-log summary
+    bridge.send(state.telemetry.victoryHold ? 'finishVoyage' : 'stopToTitle');
   });
 
   btnModeSwitch.addEventListener('click', () => {
@@ -533,6 +543,7 @@
     // Header Pause & Stop visibility
     btnCPause.hidden = !isPlaying;
     btnCStop.hidden = onTitle;
+    btnCStop.textContent = t.victoryHold && t.paused ? '🛬 降落结算' : '⏹ 返航';
     if (isPlaying) {
       btnCPause.textContent = t.paused ? '▶ 继续' : '⏸ 暂停';
       btnCPause.classList.toggle('warn', Boolean(t.paused));
@@ -551,6 +562,10 @@
       nukeBtn.classList.add('launch-mode');
       nukeTitle.textContent = '↻ 再次升空';
       nukeCount.textContent = '开启新一轮借风航程';
+    } else if (t.paused && t.victoryHold) {
+      nukeBtn.classList.add('resume-mode');
+      nukeTitle.textContent = '♾ 继续无尽航线';
+      nukeCount.textContent = '三幕通关！或点右上「降落结算」';
     } else if (t.paused) {
       nukeBtn.classList.add('resume-mode');
       nukeTitle.textContent = '▶ 继续航程';
