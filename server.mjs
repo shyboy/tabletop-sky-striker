@@ -169,7 +169,15 @@ function generateSelfSignedCert(ipList) {
 }
 
 // ---------------- 3. Ultra-Fast Native RFC 6455 WebSocket Room Relay ----------------
-const rooms = new Map(); // roomId -> Set<Socket>
+// One room = one (or more) 'host' sockets + any number of client sockets ('controller', 'crew', ...).
+// Star relay: host -> every client, client -> host(s) only. Clients never hear each other, so a
+// pilot phone and a ground-crew phone can share a room without cross-talk.
+const rooms = new Map(); // roomId -> Set<Socket>   (socket.skyRole = 'host' | 'controller' | 'crew' | ...)
+
+function shouldRelay(fromSocket, toSocket) {
+  if (fromSocket === toSocket || toSocket.destroyed) return false;
+  return (fromSocket.skyRole === 'host') !== (toSocket.skyRole === 'host');
+}
 
 function encodeWsTextFrame(str) {
   const payload = Buffer.from(str, 'utf8');
@@ -219,6 +227,7 @@ function attachWebSocketRelay(server) {
     socket.setNoDelay(true);
 
     const roomId = (reqUrl.searchParams.get('room') || 'SKY1').toUpperCase();
+    socket.skyRole = (reqUrl.searchParams.get('role') || 'controller').toLowerCase().slice(0, 24);
     if (!rooms.has(roomId)) rooms.set(roomId, new Set());
     const peers = rooms.get(roomId);
     peers.add(socket);
@@ -226,7 +235,7 @@ function attachWebSocketRelay(server) {
     // Notify existing peers in the room immediately
     const joinNotice = encodeWsTextFrame(JSON.stringify({ room: roomId, type: '__peer_joined' }));
     for (const peer of peers) {
-      if (peer !== socket && !peer.destroyed) peer.write(joinNotice);
+      if (shouldRelay(socket, peer)) peer.write(joinNotice);
     }
 
     let recvBuf = Buffer.alloc(0);
@@ -275,10 +284,10 @@ function attachWebSocketRelay(server) {
           // Ping -> Pong
           socket.write(Buffer.concat([Buffer.from([0x8a, data.length]), data]));
         } else if (opcode === 0x1) {
-          // Broadcast text message to all other sockets in this room
+          // Relay text message across the host <-> clients star of this room
           const outFrame = encodeWsTextFrame(data.toString('utf8'));
           for (const peer of peers) {
-            if (peer !== socket && !peer.destroyed) {
+            if (shouldRelay(socket, peer)) {
               peer.write(outFrame);
             }
           }
