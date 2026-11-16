@@ -519,8 +519,31 @@
     if (typeof st.godMode === 'boolean') cGod.checked = st.godMode;
   }
 
+  // Tutorial hints from the big screen: show the phone wording and light up the control to use
+  const coachBox = document.getElementById('c-coach');
+  const COACH_TARGETS = { stick: '.stick-panel', wind: '#btn-wind', rail: '.railgun-bay', nuke: '#nuke-btn' };
+  let lastCoachKey = '';
+  function renderCoach(t) {
+    const c = t.phase === 'playing' && !t.paused ? t.coach : null;
+    const key = c ? `${c.kind}|${c.title}|${c.text}|${c.target}` : '';
+    if (key === lastCoachKey || !coachBox) return;
+    lastCoachKey = key;
+    coachBox.hidden = !c;
+    document.querySelectorAll('.coach-target').forEach((el) => el.classList.remove('coach-target'));
+    if (!c) return;
+    coachBox.classList.toggle('tip', c.kind !== 'tutorial');
+    const head = document.querySelector('.cockpit-top');
+    if (head) coachBox.style.top = `${Math.round(head.getBoundingClientRect().bottom + 6)}px`; // never over pause / return
+    document.getElementById('c-coach-title').textContent = c.kind === 'tutorial' ? `🎓 新手引导 ${c.title}` : `💡 ${c.title}`;
+    document.getElementById('c-coach-text').textContent = c.text || '';
+    const sel = c.kind === 'tutorial' && COACH_TARGETS[c.target];
+    const target = sel && document.querySelector(sel);
+    if (target) target.classList.add('coach-target');
+  }
+
   function renderTelemetryUI() {
     const t = state.telemetry;
+    renderCoach(t);
     const phase = t.phase || (t.gameOver ? 'gameover' : 'playing');
     const onTitle = phase === 'title';
     const isPlaying = phase === 'playing';

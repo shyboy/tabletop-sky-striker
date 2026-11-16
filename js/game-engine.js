@@ -37,18 +37,112 @@
 
   // Per-chapter boss identity (distinct silhouettes, palettes and bullet choreography)
   const BOSS_DEFS = {
-    fog: { name: '灰雾封锁舰', hull: '#334155', trim: '#cbd5e1', core: '#94a3b8', bullet: '#64748b', accent: '#e2e8f0' },
-    storm: { name: '风暴铁幕舰', hull: '#3b0764', trim: '#fb923c', core: '#facc15', bullet: '#f97316', accent: '#fde68a' },
-    mother: { name: '深空母舰', hull: '#0f172a', trim: '#a78bfa', core: '#22d3ee', bullet: '#c084fc', accent: '#67e8f9' }
+    fog: { name: '灰雾封锁舰', hull: '#334155', trim: '#cbd5e1', core: '#94a3b8', bullet: '#f472b6', bulletAlt: '#fb7185', accent: '#e2e8f0' },
+    storm: { name: '风暴铁幕舰', hull: '#3b0764', trim: '#fb923c', core: '#facc15', bullet: '#f97316', bulletAlt: '#fde047', accent: '#fde68a' },
+    mother: { name: '深空母舰', hull: '#0f172a', trim: '#a78bfa', core: '#22d3ee', bullet: '#c084fc', bulletAlt: '#f0abfc', accent: '#67e8f9' }
   };
   const BOSS_ORDER = ['fog', 'storm', 'mother'];
 
-  // Spawn weight tables per chapter (endless loops reuse them with harder stats)
+  // Spawn weight tables per chapter (endless loops reuse them with harder stats).
+  // Third value = chapter progress (0..1) at which the type starts appearing, so new enemies
+  // arrive one at a time instead of all at once.
   const SPAWN_TABLES = [
-    [['scout', 46], ['gunship', 26], ['lancer', 18], ['mine', 10]],
-    [['scout', 30], ['gunship', 18], ['lancer', 14], ['weaver', 20], ['bomber', 10], ['mine', 8]],
-    [['scout', 24], ['gunship', 14], ['lancer', 14], ['weaver', 18], ['bomber', 12], ['sentinel', 12], ['mine', 6]]
+    [['scout', 50, 0], ['gunship', 24, 0.18], ['lancer', 16, 0.42], ['mine', 10, 0.62]],
+    [['scout', 30, 0], ['gunship', 18, 0], ['lancer', 14, 0], ['weaver', 20, 0.05], ['mine', 8, 0.2], ['bomber', 10, 0.45]],
+    [['scout', 24, 0], ['gunship', 14, 0], ['lancer', 14, 0], ['weaver', 18, 0], ['bomber', 12, 0], ['mine', 6, 0], ['sentinel', 12, 0.3]]
   ];
+
+  // Seconds of normal flight in each chapter before its blockade boss shows up (endless legs use the last+)
+  const CHAPTER_LENGTH = [95, 120, 140];
+  const ENDLESS_LENGTH = 110;
+  // Story boss hull per chapter (endless loops scale the last one up)
+  const BOSS_HP = [3200, 5400, 7200];
+  // Firepower ceiling grows with the voyage: Lv2 in act I, Lv3 in act II, Lv4 in act III, Lv5 in the endless route
+  const MAX_WEAPON_LV = 5;
+
+  // One-time explanations, shown the first time each thing turns up (remembered per browser)
+  const FIRST_TIPS = {
+    scout: { icon: '🛩', title: '侦察机', text: '成群飞来、会瞄准你开枪。持续开火就能清掉。' },
+    gunship: { icon: '🚁', title: '炮艇', text: '一次打三发扇形弹，血更厚。击落必掉道具！' },
+    lancer: { icon: '🗡', title: '冲锋枪骑', text: '先对准你，再直线冲下来 —— 看到它停顿就横移躲开。' },
+    mine: { icon: '💣', title: '浮空水雷', text: '靠近会爆成一圈子弹。远远地把它打掉最安全。' },
+    weaver: { icon: '〰', title: '织云机', text: '从侧面蛇形飞过的编队，排成一行好打连击。' },
+    bomber: { icon: '🛫', title: '轰炸机', text: '会沿途丢水雷、撒扇形弹。优先集火，掉落护盾和僚机。' },
+    sentinel: { icon: '🌸', title: '哨塔', text: '停在空中旋转喷弹幕。磁轨炮或核弹能快速拆掉它。' },
+    weapon: { icon: 'P', color: '#38bdf8', title: '火力升级', text: '子弹更多更强。每一幕能升到更高一级。' },
+    heal: { icon: '+', color: '#4ade80', title: '机体修复', text: '恢复 30% 耐久。' },
+    shield: { icon: 'S', color: '#67e8f9', title: '能量护盾', text: '抵挡一次伤害，最多叠两层。' },
+    drone: { icon: 'D', color: '#6ee7b7', title: '浮游僚机', text: '在两侧自动瞄准开火，最多 4 架。' },
+    nuke: { icon: 'N', color: '#fb923c', title: '战术核弹', text: '清掉全屏子弹和杂兵。键盘 K / 手柄 ○ / 手机大按钮。' },
+    medal: { icon: '★', color: '#facc15', title: '金星连锁', text: '连续拾取价值从 100 涨到 1000；漏掉或受伤就重置。' },
+    lowHp: { icon: '⚠', color: '#f87171', title: '机体告急', text: '找绿色「+」修复，或用顺风、翻滚先躲一躲。' },
+    boss: { icon: '☠', color: '#f87171', title: '封锁舰', text: '顶部是它的血条。血量过半会狂暴，换更凶的弹幕。' },
+    supply: { icon: '📦', color: '#fde68a', title: '中途补给', text: '每一幕飞到一半会空投补给，记得去接。' }
+  };
+  // Guided first flight. Each step waits for the player to actually do the thing (with a timeout so nobody gets stuck).
+  // phone / touch / keys = how to do it with the phone cockpit, a touchscreen, or keyboard & gamepad.
+  // target = which phone-cockpit control to highlight.
+  const TUTORIAL_STEPS = [
+    {
+      id: 'move', title: '移动', goal: '左右移动一下：玩具不动，云海替它往后跑',
+      phone: '推动手机上的摇杆（或切到体感后倾斜手机）', touch: '手指按住屏幕任意处拖动',
+      keys: 'WASD / 方向键，或鼠标按住画面拖动；手柄左摇杆', target: 'stick', timeout: 14
+    },
+    {
+      id: 'shoot', title: '自动开火', goal: '飞行时会自动射击 —— 对准侦察机，击落 3 架',
+      phone: '移动就会自动开火', touch: '移动就会自动开火', keys: '移动就会自动开火（手柄也可按住 R2）',
+      target: 'stick', need: 3, timeout: 30
+    },
+    {
+      id: 'pickup', title: '吃道具', goal: '飞过去碰到蓝色「P」—— 火力升级！其他道具第一次吃到时会有说明',
+      phone: '靠近道具会被自动吸过来', touch: '靠近道具会被自动吸过来', keys: '靠近道具会被自动吸过来',
+      target: 'stick', timeout: 18
+    },
+    {
+      id: 'dodge', title: '躲子弹', goal: '只有机身中央的红白判定点碰到子弹才算受伤。击落这架炮艇',
+      phone: '横移躲开红色子弹（引导中不扣血）', touch: '横移躲开红色子弹（引导中不扣血）', keys: '横移躲开红色子弹（引导中不扣血）',
+      target: 'stick', timeout: 24
+    },
+    {
+      id: 'gust', title: '借风 · 顺风', goal: '吹一口顺风，把迎面的子弹倒吹回敌机',
+      phone: '对着手机麦克风用力吹一口，或点「💨 顺风」', touch: '点左下角「💨 顺风」', keys: '按 F（按住＝持续轻吹）· 手柄 □/X',
+      target: 'wind', timeout: 20
+    },
+    {
+      id: 'rail', title: '磁轨炮', goal: '蓄满力后松手，轰掉这架厚皮轰炸机（拉满立刻松手＝完美蓄力）',
+      phone: '按住右侧拉栓往下拉，拉满后松手', touch: '按住右下角「⚡ 磁轨」蓄力，松手发射', keys: '按住 Shift 或 J 蓄力，松开发射 · 手柄按住 L2',
+      target: 'rail', timeout: 22
+    },
+    {
+      id: 'done', title: '准备出发！', goal: '危急时：翻滚可短暂无敌，核弹能清空全屏子弹。第一航段开始！',
+      phone: '翻滚＝后拉手机或「🌀」键 · 核弹＝大圆按钮', touch: '核弹＝右下角「☢」', keys: '翻滚 Space · 核弹 K · 暂停 P',
+      target: 'nuke', timeout: 5.5
+    }
+  ];
+
+  const TIPS_KEY = 'skyStriker.tips.v1';
+
+  // Combat readability (what Touhou / Cave / Raiden do): in flight the scenery is pushed back -
+  // darker, calmer, fewer bright shapes - so the craft and every bullet sit clearly on top of it.
+  // veil = dark wash over the scenery, cloud = cloud & island opacity, sun = glare, lines = grid / speed lines / stars.
+  const BG_CALM = {
+    normal: { label: '标准', veil: 0.3, cloud: 0.26, sun: 0.25, lines: 0.12 },
+    dark: { label: '压暗', veil: 0.42, cloud: 0.16, sun: 0.14, lines: 0.08 },
+    max: { label: '很暗', veil: 0.56, cloud: 0.08, sun: 0.06, lines: 0.04 }
+  };
+  // Main guns fire 1.45x less often with 1.45x damage: same firepower, far fewer bars filling the screen
+  const SHOT_THIN = 1.45;
+  const BG_CALM_TITLE = { veil: 0, cloud: 1, sun: 1, lines: 1 };
+  // Corridor feel (like the avenues / canyons other vertical shooters fly along): soft cloud walls on both
+  // sides and a clean, gently winding lane in the middle where the craft and bullets stay readable.
+  const LANE_STYLE = {
+    day: { wall: '255, 255, 255', wallA: 1 },
+    sunset: { wall: '255, 214, 186', wallA: 0.75 },
+    night: { wall: '51, 85, 150', wallA: 0.95 }
+  };
+  const LANE_PF = 0.6; // the corridor scrolls a bit slower than the battle layer: it reads as terrain far below
+  const VEIL_RGB = { day: '10, 34, 66', sunset: '34, 12, 36', night: '2, 6, 18' };
+  const TUTORIAL_KEY = 'skyStriker.tutorialDone.v1';
 
   // Toy personality: what sits on the tablet changes how it flies
   const TOY_TRAITS = {
@@ -90,6 +184,19 @@
       if (global.localStorage) global.localStorage.setItem(BEST_KEY, JSON.stringify(best));
     } catch (e) { /* storage blocked: records live for this session only */ }
   }
+  function loadJSON(key, fallback) {
+    try {
+      const raw = global.localStorage && global.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  function saveJSON(key, value) {
+    try {
+      if (global.localStorage) global.localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) { /* ignore */ }
+  }
 
   // Deterministic hash for infinite procedural islands/clouds in world coordinates
   function hash2D(ix, iy) {
@@ -106,6 +213,10 @@
       this.sfx = sfx;
       this.onTelemetry = callbacks.onTelemetry || (() => {});
       this.onStateChange = callbacks.onStateChange || (() => {});
+      // Coach card: tutorial steps and one-time tips (host renders them outside the battlefield)
+      this.onCoach = callbacks.onCoach || (() => {});
+      this.tipsSeen = loadJSON(TIPS_KEY, {}) || {};
+      this.tutorialDone = Boolean(loadJSON(TUTORIAL_KEY, false));
 
       this.width = 1280;
       this.height = 800;
@@ -123,7 +234,8 @@
         godMode: false,     // Kid-friendly invincible escort mode
         difficulty: 'normal', // 'easy' | 'normal' | 'ace'
         hitSize: 'normal',    // bullet hit-core size: 'small' | 'normal' | 'large'
-        toyName: ''           // the kid's name for the toy, shown on banners and the keepsake card
+        toyName: '',          // the kid's name for the toy, shown on banners and the keepsake card
+        bgDim: 'normal'       // how far the scenery is pushed back in flight: 'normal' | 'dark' | 'max'
       };
 
       this.calibHighlightTimer = 0;
@@ -178,7 +290,12 @@
       this.pendingFx = [];
       this.hazards = [];
       this.bossIntro = 0;
-      this.bossCooldown = 35; // minimum flight time before the first blockade
+      this.chapterTime = 0;     // seconds flown in the current chapter (drives pacing & boss timing)
+      this.supplyDropped = false;
+      this.tutorial = null;     // first-flight guided steps (see _stepTutorial)
+      this.coach = null;        // currently shown coach card
+      this.coachQueue = [];
+      this.coachCooldown = 0;
       this.breath = 0;        // smoothed sustained-breath level (phone mic / held key)
       this.breathPeak = 0;    // recent peak, scales the strength of a gust
       this.breezeAccum = 0;
@@ -191,6 +308,7 @@
       this.victoryHoldTimer = 0;
       this.warnThrottle = 0;
       this.crewAssists = 0;
+      this.hullBonus = 0;
       this.crewCd = { shield: 0, heal: 0, supply: 0, mark: 0, cheer: 0 };
       this.marks = [];          // radar pings from the ground crew (world coords)
 
@@ -207,9 +325,9 @@
         hp: 100,
         maxHp: 100,
         weaponLv: 1,
-        droneCount: 2,
+        droneCount: 0,   // earned along the way: supply drops, D pickups and boss rewards
         shield: 0,
-        nukes: 2,
+        nukes: 1,
         maxNukes: 3,
         fireCooldown: 0,
         droneFireCooldown: 0,
@@ -234,8 +352,7 @@
       this.windStreaks = [];
 
       this.boss = null;
-      this.nextBossScore = 5000;
-      this.spawnTimer = 1.1;
+      this.spawnTimer = 1.6;
       this.screenShake = 0;
       this.flashAlpha = 0;
       this.telemetryAccum = 0;
@@ -280,11 +397,13 @@
       this.gameOver = false;
       this.manualPaused = false;
       this.calibHighlightTimer = 9999; // Keep golden helipad visible on title screen!
+      this._emitCoach();
       this.onStateChange(this.getPublicState());
     }
 
     // Launch or Restart Mission from Wave 1
-    startMission() {
+    // opts.tutorial: true forces the guided first flight, false skips it; default = only until finished once
+    startMission(opts = {}) {
       this._initWorldContainers();
       this.lastRun = null;
       this.phase = 'playing';
@@ -293,12 +412,18 @@
       this.player.shield = this.tier.startShield || 0;
       this._applyToyTraits(true);
       this.calibHighlightTimer = 3.2;
-      this._announceChapter(1);
+      const wantTutorial = typeof opts.tutorial === 'boolean' ? opts.tutorial : !this.tutorialDone;
+      if (wantTutorial) {
+        this._startTutorial();
+      } else {
+        this._announceChapter(1);
+      }
       this.floatingTexts.push({
         x: this._playerWorldX(), y: this._playerWorldY() - 110,
         text: `${this.traits.icon} ${this.toyLabel}（${this.traits.label}）起飞！`, color: '#fde68a', life: 2.2, big: true
       });
       this.sfx.powerup();
+      this._emitCoach();
       this.onStateChange(this.getPublicState());
     }
 
@@ -396,6 +521,7 @@
       if (patch.difficulty && DIFFICULTY[patch.difficulty]) this.rig.difficulty = patch.difficulty;
       if (patch.hitSize && HIT_SIZE[patch.hitSize]) this.rig.hitSize = patch.hitSize;
       if (typeof patch.toyName === 'string') this.rig.toyName = patch.toyName.trim().slice(0, 8);
+      if (patch.bgDim && BG_CALM[patch.bgDim]) this.rig.bgDim = patch.bgDim;
       // A new toy type before take-off changes the hull right away (mid-flight it keeps the current HP ratio)
       if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
@@ -462,6 +588,10 @@
         crewAssists: this.crewAssists,
         nukes: this.player.nukes,
         weaponLv: this.player.weaponLv,
+        weaponCap: this.weaponCap,
+        tutorialActive: Boolean(this.tutorial),
+        tutorialDone: this.tutorialDone,
+        chapterProgress: Number(this.chapterProgress.toFixed(3)),
         shield: this.player.shield,
         droneCount: this.player.droneCount,
         loop: this.loopIndex,
@@ -602,6 +732,7 @@
         this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 110, text: '⚡ 完美蓄力！', color: '#a5f3fc', life: 1.1, big: true });
       }
       p.railCooldown = 1.6;
+      if (this.tutorial) this.tutorial.railed = true;
       this.remoteInput.railCharge = 0;
       this.localRailCharge = 0;
       this.screenShake = Math.max(this.screenShake, 12 * clampedPower);
@@ -658,6 +789,7 @@
       if (this.phase !== 'playing' || this.isPaused || p.gustCooldown > 0) return false;
       const pw = clamp(typeof power === 'number' ? power : Math.max(0.6, this.breathPeak), 0.4, 1);
       this.gustUsedCount++;
+      if (this.tutorial) this.tutorial.gusted = true;
       p.gustStartedAt = this.time;
       p.gustTimer = 0.9 + pw * 0.6;
       p.gustCooldown = p.gustMaxCooldown;
@@ -911,6 +1043,10 @@
 
     step(dt) {
       dt = Math.min(dt, 0.05);
+      this._calmFactors(dt);
+      // The corridor lazily re-centres on the craft, so strafing shows motion but the lane never gets lost
+      const laneTarget = this.rig.mode === 'tabletop' ? this.player.worldX : this.width * 0.5 + (this.player.screenX - this.width * 0.5) * 0.18;
+      this._laneCamX = this._laneCamX === undefined ? laneTarget : lerp(this._laneCamX, laneTarget, 1 - Math.exp(-dt * 0.55));
       if (this._stateDirty) {
         this._stateDirty = false;
         this.onStateChange(this.getPublicState());
@@ -984,6 +1120,7 @@
         if (this.comboTimer <= 0) this.combo = 0;
       }
       if (this.warnThrottle > 0) this.warnThrottle -= dt;
+      if (this.comboPulse > 0) this.comboPulse = Math.max(0, this.comboPulse - dt);
       for (const k in this.crewCd) if (this.crewCd[k] > 0) this.crewCd[k] = Math.max(0, this.crewCd[k] - dt);
       for (let i = this.marks.length - 1; i >= 0; i--) {
         this.marks[i].life -= dt;
@@ -1115,14 +1252,14 @@
       p.fireCooldown -= dt;
       if (inp.firing && inp.railCharge < 0.2 && p.railBeamTimer <= 0 && p.fireCooldown <= 0) {
         this._fireMainGuns(px, py);
-        p.fireCooldown = (p.weaponLv >= 4 ? 0.095 : 0.115) * this.traits.fireRate;
+        p.fireCooldown = (p.weaponLv >= 4 ? (p.weaponLv >= 5 ? 0.088 : 0.095) : 0.115) * this.traits.fireRate * SHOT_THIN;
       }
 
       // Flanking Bit-Drones Auto Fire
       p.droneFireCooldown -= dt;
       if (inp.firing && p.droneCount > 0 && p.droneFireCooldown <= 0) {
         this._fireDroneGuns(px, py);
-        p.droneFireCooldown = 0.26;
+        p.droneFireCooldown = 0.42;
       }
 
       // Active Railgun Continuous Sweep Damage
@@ -1148,6 +1285,8 @@
         }
       }
 
+      if (this.tutorial) this._stepTutorial(dt, inp);
+      this._stepCoach(dt);
       this._stepSpawner(dt, px, py);
       this._stepHazards(dt, px, py);
       this._stepPlayerBullets(dt, px, py);
@@ -1185,10 +1324,11 @@
 
       this.sfx.laser(lv);
 
-      const addShot = (ox, vx, dmg, color = '#0284c7', w = 4.5, h = 19) => {
-        const brightColor = this.getEffectiveSky() === 'day' ? color : '#38bdf8';
+      // Player palette stays cool (cyan / ice / white) so it can never be mistaken for enemy fire
+      const SHOT = { '#0369a1': '#38bdf8', '#ea580c': '#7dd3fc', '#dc2626': '#e0f2fe' };
+      const addShot = (ox, vx, dmg, color = '#0369a1', w = 4.5, h = 19) => {
         const heavy = this.traits.dmg;
-        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy, color: brightColor, w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
+        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy * SHOT_THIN, color: SHOT[color] || '#38bdf8', w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
       };
 
       const spreadBase = this.rig.mode === 'tabletop' ? Math.min(26, this.rig.width * 0.24) : 11;
@@ -1204,12 +1344,22 @@
         addShot(spreadBase * 0.65, 0, 15, '#ea580c', 5, 22);
         addShot(-spreadBase * 1.5, -145, 12, '#0369a1');
         addShot(spreadBase * 1.5, 145, 12, '#0369a1');
-      } else {
+      } else if (lv === 4) {
         addShot(0, 0, 20, '#dc2626', 6, 24);
         addShot(-spreadBase, -65, 15, '#ea580c', 5, 20);
         addShot(spreadBase, 65, 15, '#ea580c', 5, 20);
         addShot(-spreadBase * 1.7, -195, 13, '#0369a1');
         addShot(spreadBase * 1.7, 195, 13, '#0369a1');
+      } else {
+        // Lv5 (endless route): twin heavy cores + wide fan
+        addShot(-spreadBase * 0.45, 0, 21, '#dc2626', 6, 26);
+        addShot(spreadBase * 0.45, 0, 21, '#dc2626', 6, 26);
+        addShot(-spreadBase * 1.1, -70, 16, '#ea580c', 5, 21);
+        addShot(spreadBase * 1.1, 70, 16, '#ea580c', 5, 21);
+        addShot(-spreadBase * 1.8, -190, 14, '#0369a1');
+        addShot(spreadBase * 1.8, 190, 14, '#0369a1');
+        addShot(-spreadBase * 2.2, -300, 12, '#0369a1');
+        addShot(spreadBase * 2.2, 300, 12, '#0369a1');
       }
     }
 
@@ -1239,7 +1389,7 @@
           vx = (aimX / len) * 780;
           vy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) + (aimY / len) * 780;
         }
-        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 10, color: '#10b981', w: 4, h: 14, life: 1.2 });
+        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 16, color: '#4ade80', w: 3.5, h: 13, life: 1.2, drone: true });
       }
     }
 
@@ -1269,8 +1419,9 @@
       const p = this.player;
       const t = this.traits;
       const ratio = p.maxHp > 0 ? p.hp / p.maxHp : 1;
-      p.maxHp = t.maxHp;
-      p.hp = refill ? t.maxHp : Math.max(1, Math.round(t.maxHp * ratio));
+      const bonus = this.phase === 'playing' ? (this.hullBonus || 0) : 0;
+      p.maxHp = t.maxHp + bonus;
+      p.hp = refill ? p.maxHp : Math.max(1, Math.round(p.maxHp * ratio));
       p.gustMaxCooldown = 6 * t.gustCd;
     }
 
@@ -1278,8 +1429,39 @@
       return DIFFICULTY[this.rig.difficulty] || DIFFICULTY.normal;
     }
 
+    // Seconds of regular flight before this chapter's blockade boss
+    _chapterLength() {
+      const ch = this.getCurrentChapter();
+      return ch.loop > 0 ? ENDLESS_LENGTH : CHAPTER_LENGTH[ch.idx];
+    }
+
+    get chapterProgress() {
+      return clamp(this.chapterTime / this._chapterLength(), 0, 1);
+    }
+
+    // Overall pressure: 0 at take-off, 1 at the end of act III, then keeps climbing on the endless route.
+    // Everything that makes the sky harder (spawn rate, enemy hull, fire rate) reads from this one curve,
+    // so the voyage ramps up smoothly instead of spiking.
+    _pressure() {
+      const ch = this.getCurrentChapter();
+      const prog = this.boss ? 1 : this.chapterProgress;
+      if (ch.loop === 0) return (ch.idx + prog) / STORY_CHAPTERS.length;
+      return 1 + ((ch.loop - 1) * STORY_CHAPTERS.length + ch.idx + prog) * 0.12;
+    }
+
+    // Enemy hull multiplier
     _difficulty() {
-      return 1 + (this.wave - 1) * 0.22 + Math.min(1.5, this.time / 120);
+      return 0.8 + this._pressure() * 1.2;
+    }
+
+    // Multiplier on enemy re-fire delays: early skies shoot noticeably less
+    _fireGap() {
+      const pr = this._pressure();
+      return pr <= 1 ? lerp(1.6, 1.0, pr) : Math.max(0.72, 1 - (pr - 1) * 0.2);
+    }
+
+    get weaponCap() {
+      return clamp(this.wave + 1, 2, MAX_WEAPON_LV);
     }
 
     _topSpawnY(py) {
@@ -1290,22 +1472,38 @@
 
     _stepSpawner(dt, px, py) {
       const topSpawnY = this._topSpawnY(py);
+      if (this.tutorial) return; // the guided first flight places its own enemies
 
-      if (this.bossCooldown > 0) this.bossCooldown -= dt;
-      if (!this.boss && this.bossCooldown <= 0 && this.score >= this.nextBossScore) {
-        this._spawnBoss(px, topSpawnY);
-        return;
+      if (!this.boss && this.victoryHoldTimer <= 0) {
+        this.chapterTime += dt;
+        const len = this._chapterLength();
+        // Half-way supply drop: a guaranteed, visible step up in strength every chapter
+        if (!this.supplyDropped && this.chapterTime >= len * 0.5) {
+          this.supplyDropped = true;
+          this._supplyDrop(px, py);
+        }
+        // Breather just before the blockade: stop sending fresh enemies for the last few seconds
+        if (this.chapterTime >= len) {
+          if (this.enemies.length === 0 || this.chapterTime >= len + 6) this._spawnBoss(px, topSpawnY);
+          return;
+        }
+        if (this.chapterTime >= len - 4) return;
       }
 
       this.spawnTimer -= dt;
       if (this.spawnTimer > 0) return;
 
       const difficulty = this._difficulty();
-      this.spawnTimer = (this.boss ? 2.3 : Math.max(0.55, 1.45 - difficulty * 0.16)) * this.tier.spawn;
+      const pr = this._pressure();
+      const gap = pr <= 1 ? lerp(2.5, 0.95, pr) : Math.max(0.6, 0.95 - (pr - 1) * 0.25);
+      this.spawnTimer = (this.boss ? 2.6 : gap) * this.tier.spawn;
 
-      // Bosses only get light escorts; the story table decides the rest
-      const table = SPAWN_TABLES[this.getCurrentChapter().idx];
-      const pool = this.boss ? table.filter(([t]) => t === 'scout' || t === 'mine') : table;
+      // Bosses only get light escorts; the story table decides the rest, unlocking types as the chapter goes on
+      const ch = this.getCurrentChapter();
+      const table = SPAWN_TABLES[ch.idx];
+      const prog = this.chapterProgress;
+      const unlocked = ch.loop > 0 ? table : table.filter(([, , at]) => prog >= at);
+      const pool = this.boss ? unlocked.filter(([t]) => t === 'scout' || t === 'mine') : unlocked;
       const total = pool.reduce((sum, [, w]) => sum + w, 0);
       let roll = Math.random() * total;
       let type = pool[0][0];
@@ -1322,11 +1520,13 @@
         // Smoothed velocity: a sustained strafe gets full lead, a left-right dodger (≈0 average) gets almost none
         px += clamp((this.player.vxSmooth || 0) * 2.4, -this.width, this.width);
       }
+      this._tip(type);
       const spanW = Math.min(this.width * 0.84, 760);
       const base = (extra) => ({ phase: Math.random() * Math.PI * 2, age: 0, hitFlash: 0, ...extra });
 
       if (type === 'scout') {
-        const count = 3 + Math.floor(Math.random() * 3);
+        const pr = this._pressure();
+        const count = (pr < 0.15 ? 2 : 3) + Math.floor(Math.random() * (pr < 0.33 ? 2 : 3));
         const startX = px + (Math.random() - 0.5) * (spanW * 0.65);
         const dir = Math.random() < 0.5 ? 1 : -1;
         for (let i = 0; i < count; i++) {
@@ -1396,9 +1596,10 @@
     }
 
     _spawnBoss(px, topSpawnY) {
-      const kind = BOSS_ORDER[this.getCurrentChapter().idx];
+      const ch = this.getCurrentChapter();
+      const kind = BOSS_ORDER[ch.idx];
       const def = BOSS_DEFS[kind];
-      const hp = Math.round((4200 + (this.wave - 1) * 1500) * (1 + this.loopIndex * 0.35));
+      const hp = Math.round((ch.loop === 0 ? BOSS_HP[ch.idx] : BOSS_HP[ch.idx] * 1.3) * (1 + this.loopIndex * 0.35));
       const boss = {
         type: 'boss',
         bossKind: kind,
@@ -1424,7 +1625,7 @@
       this.enemies.push(boss);
       this.bossIntro = 2.6;
       this.sfx.bossAlarm();
-      const ch = this.getCurrentChapter();
+      this._tip('boss');
       this.storyBanner = {
         title: `⚠ ${def.name} · 第 ${this.wave} 关封锁线`,
         subtitle: ch.bossWarn,
@@ -1491,12 +1692,13 @@
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       if (this.combo > 0 && this.combo % 25 === 0) {
         this._sfx('comboMilestone', this.combo);
-        this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 92, text: `${this.combo} 连击！`, color: '#fde047', life: 1.2, big: true });
+        this.comboPulse = 0.6; // the HUD counter flashes; no big text in front of the craft
       }
       const mult = 1 + Math.min(2.0, this.combo * 0.05);
       const pts = Math.round(e.scoreVal * mult * (1 + this.loopIndex * 0.5));
       this.score += pts;
       this.kills++;
+      if (this.tutorial && e.tutorial) this.tutorial.kills++;
       if (!this._nuking) this.killsForNuke++;
 
       if (this.killsForNuke >= 48) {
@@ -1547,9 +1749,11 @@
       this.bossKills++;
       const clearedWave = this.wave;
       this.wave++;
-      this.nextBossScore = this.score + 6000 + this.wave * 1500;
-      // Breathing room: the next blockade never arrives before the new chapter has had time to play out
-      this.bossCooldown = clearedWave === STORY_CHAPTERS.length ? 45 : 38;
+      // The next chapter's clock starts from zero: it gets its full length before the next blockade
+      this.chapterTime = 0;
+      this.supplyDropped = false;
+      this.spawnTimer = 3;
+      const upgrade = this._chapterUpgrade();
       // Expire (rather than truncate) projectiles & lanes: this can run from inside their own update loops
       for (const b of this.enemyBullets) b.life = 0;
       for (const hz of this.hazards) hz.dead = true;
@@ -1606,7 +1810,254 @@
         }
       } else {
         this._announceChapter(this.wave);
+        this.storyBanner.subtitle = `强化：${upgrade}`;
+        this.storyBanner.timer = this.storyBanner.maxTimer = 5;
       }
+    }
+
+    // Clearing a blockade makes the craft permanently stronger for the rest of the voyage
+    _chapterUpgrade() {
+      const p = this.player;
+      const parts = [];
+      this.hullBonus = (this.hullBonus || 0) + 15;
+      p.maxHp += 15;
+      p.hp = Math.min(p.maxHp, p.hp + 15 + p.maxHp * 0.35);
+      parts.push('机体上限 +15');
+      if (p.droneCount < 4) {
+        p.droneCount++;
+        parts.push(`僚机 ×${p.droneCount}`);
+      }
+      if (p.nukes < p.maxNukes) {
+        p.nukes++;
+        parts.push('核弹 +1');
+      }
+      if (this.weaponCap > p.weaponLv) parts.push(`火力上限 Lv.${this.weaponCap}`);
+      this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 130, text: '⬆ 航段强化！', color: '#86efac', life: 2, big: true });
+      this._stateDirty = true;
+      return parts.join(' · ');
+    }
+
+    // ===================== Guided first flight & one-time tips =====================
+
+    _startTutorial() {
+      this.tutorial = { idx: -1, t: 0, kills: 0, moved: 0, gusted: false, railed: false, picked: null };
+      this._enterTutorialStep(0);
+    }
+
+    get tutorialStep() {
+      return this.tutorial ? TUTORIAL_STEPS[this.tutorial.idx] : null;
+    }
+
+    _enterTutorialStep(idx) {
+      const tu = this.tutorial;
+      if (!tu) return;
+      if (idx >= TUTORIAL_STEPS.length) {
+        this._finishTutorial(false);
+        return;
+      }
+      tu.idx = idx;
+      tu.t = 0;
+      tu.kills = 0;
+      tu.picked = null;
+      tu.gusted = false;
+      tu.railed = false;
+      tu.timedOut = false;
+      const p = this.player;
+      const id = TUTORIAL_STEPS[idx].id;
+      if (idx > 0) this._sfx('medal', Math.min(10, idx + 2));
+      if (id === 'shoot') this._tutorialSpawn('shoot');
+      else if (id === 'pickup') this._tutorialSpawn('pickup');
+      else if (id === 'dodge') this._tutorialSpawn('dodge');
+      else if (id === 'gust') {
+        p.gustCooldown = 0;
+        this._tutorialSpawn('gust');
+      } else if (id === 'rail') {
+        p.railCooldown = 0;
+        this._tutorialSpawn('rail');
+      }
+      this._emitCoach();
+    }
+
+    // Places the enemies / items a step needs, tagged so the step can tell when they are gone
+    _tutorialSpawn(id) {
+      const px = this._playerWorldX();
+      const py = this._playerWorldY();
+      const top = this._topSpawnY(py);
+      const before = this.enemies.length;
+      if (id === 'shoot') {
+        this._spawnGroup('scout', px, py, top, 0.8);
+        this._spawnGroup('scout', px, py, top - 160, 0.8);
+      } else if (id === 'pickup') {
+        const ahead = this.rig.mode === 'tabletop' ? this.height * 0.42 : this.height * 0.4;
+        this._spawnPowerup(px, this.rig.mode === 'tabletop' ? py - ahead : Math.max(90, py - ahead), 'weapon');
+        const pw = this.powerups[this.powerups.length - 1];
+        pw.life = 20;
+        pw.tutorial = true;
+      } else if (id === 'dodge') {
+        this._spawnGroup('gunship', px, py, top, 2); // sturdier, so there is time to watch its shots
+      } else if (id === 'gust') {
+        this._spawnGroup('gunship', px - 120, py, top, 0.8);
+        this._spawnGroup('gunship', px + 120, py, top - 40, 0.8);
+      } else if (id === 'rail') {
+        this._spawnGroup('bomber', px, py, top, 3);
+      }
+      for (let i = before; i < this.enemies.length; i++) {
+        const e = this.enemies[i];
+        e.tutorial = true;
+        if (id === 'shoot') e.fireTimer = 99; // first targets don't shoot back
+        if (id === 'rail') e.mineTimer = 99;
+        if (id === 'dodge' || id === 'gust') e.fireTimer = 0.6;
+      }
+    }
+
+    _stepTutorial(dt, inp) {
+      const tu = this.tutorial;
+      const step = this.tutorialStep;
+      if (!tu || !step) return;
+      tu.t += dt;
+      const tagged = this.enemies.some((e) => e.tutorial);
+      let done = false;
+      if (step.id === 'move') {
+        if (Math.abs(inp.vx) + Math.abs(inp.vy) > 0.25) tu.moved += dt;
+        done = tu.moved >= 0.9;
+      } else if (step.id === 'shoot') {
+        done = tu.kills >= step.need;
+        if (!done && !tagged) this._tutorialSpawn('shoot');
+      } else if (step.id === 'pickup') {
+        done = tu.picked === 'weapon';
+        const pw = this.powerups.find((it) => it.tutorial);
+        if (pw && (tu.t > 3 || pw.y > this._playerWorldY() + 60)) pw.magnet = true; // don't let it slip past
+        if (!done && !pw) this._tutorialSpawn('pickup');
+      } else if (step.id === 'dodge') {
+        done = tu.kills >= 1 && !tagged;
+        if (!done && !tagged) this._tutorialSpawn('dodge');
+      } else if (step.id === 'gust') {
+        done = tu.gusted;
+        if (!done && !tagged) this._tutorialSpawn('gust');
+      } else if (step.id === 'rail') {
+        done = tu.railed;
+        if (!done && !tagged) this._tutorialSpawn('rail');
+      } else if (step.id === 'done') {
+        done = tu.t >= step.timeout;
+      }
+      if (!done && tu.t >= step.timeout) {
+        done = true;
+        if (step.id !== 'done') {
+          this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 96, text: '没关系，飞行中随时可以再试', color: '#e0f2fe', life: 1.6 });
+        }
+      }
+      if (done) {
+        if (step.id !== 'done') {
+          this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 120, text: '✔ 完成！', color: '#86efac', life: 1.1, big: true });
+        }
+        this._enterTutorialStep(tu.idx + 1);
+      } else if (step.id === 'shoot' && tu.kills !== tu.lastKills) {
+        tu.lastKills = tu.kills;
+        this._emitCoach();
+      }
+    }
+
+    // skipped: the player pressed "skip"; either way the guided flight is not forced again
+    _finishTutorial(skipped) {
+      if (!this.tutorial) return;
+      this.tutorial = null;
+      this.tutorialDone = true;
+      saveJSON(TUTORIAL_KEY, true);
+      // What the tutorial already explained doesn't need a tip later
+      for (const k of ['scout', 'gunship', 'bomber', 'weapon']) this.tipsSeen[k] = true;
+      saveJSON(TIPS_KEY, this.tipsSeen);
+      for (const e of this.enemies) if (e.tutorial) e.tutorial = false;
+      this.player.gustCooldown = 0;
+      this.player.railCooldown = 0;
+      this.chapterTime = 0;
+      this.spawnTimer = skipped ? 1.6 : 2.4;
+      this._announceChapter(this.wave);
+      this._emitCoach();
+      this._stateDirty = true;
+    }
+
+    skipTutorial() {
+      if (this.tutorial) this._finishTutorial(true);
+    }
+
+    // Queue a one-time explanation the first time something turns up
+    _tip(key) {
+      if (this.tutorial || this.tipsSeen[key] || !FIRST_TIPS[key] || this.phase !== 'playing') return;
+      this.tipsSeen[key] = true;
+      saveJSON(TIPS_KEY, this.tipsSeen);
+      if (this.coachQueue.length < 4) this.coachQueue.push({ key, ...FIRST_TIPS[key] });
+    }
+
+    resetTips() {
+      this.tipsSeen = {};
+      saveJSON(TIPS_KEY, this.tipsSeen);
+    }
+
+    _stepCoach(dt) {
+      if (this.tutorial) return;
+      if (this.coach) {
+        this.coach.life -= dt;
+        if (this.coach.life <= 0) {
+          this.coach = null;
+          this.coachCooldown = 0.6;
+          this._emitCoach();
+        }
+        return;
+      }
+      if (this.coachCooldown > 0) {
+        this.coachCooldown -= dt;
+        return;
+      }
+      if (this.coachQueue.length) {
+        this.coach = { ...this.coachQueue.shift(), life: 6.5 };
+        this._emitCoach();
+      }
+    }
+
+    // What the coach card should show right now (null = nothing)
+    getCoach() {
+      if (this.phase !== 'playing') return null;
+      const step = this.tutorialStep;
+      if (step) {
+        const tu = this.tutorial;
+        return {
+          kind: 'tutorial',
+          step: tu.idx + 1,
+          total: TUTORIAL_STEPS.length,
+          id: step.id,
+          title: step.title,
+          goal: step.goal,
+          progress: step.id === 'shoot' ? `${Math.min(tu.kills, step.need)}/${step.need}` : '',
+          phone: step.phone,
+          touch: step.touch,
+          keys: step.keys,
+          target: step.target
+        };
+      }
+      if (this.coach) {
+        const c = this.coach;
+        return { kind: 'tip', key: c.key, icon: c.icon, color: c.color || '', title: c.title, text: c.text };
+      }
+      return null;
+    }
+
+    _emitCoach() {
+      try {
+        this.onCoach(this.getCoach());
+      } catch (e) { /* UI must never break the game loop */ }
+    }
+
+    // Mid-chapter care package: always a weapon step and a wingman (or a shield once the formation is full)
+    _supplyDrop(px, py) {
+      const ahead = this.rig.mode === 'tabletop' ? this.height * 0.45 : this.height * 0.4;
+      const yTop = this.rig.mode === 'tabletop' ? py - ahead : Math.max(80, py - ahead);
+      const p = this.player;
+      this._spawnPowerup(px - 36, yTop, p.weaponLv < this.weaponCap ? 'weapon' : 'heal');
+      this._spawnPowerup(px + 36, yTop, p.droneCount < 4 ? 'drone' : 'shield');
+      this._spawnPowerup(px, yTop - 30, 'medal');
+      this.floatingTexts.push({ x: px, y: yTop + 40, text: '📦 中途补给到达！', color: '#fde68a', life: 1.8, big: true });
+      this._sfx('shieldUp');
+      this._tip('supply');
     }
 
     _stepPendingFx(dt) {
@@ -1707,8 +2158,8 @@
           e.fireTimer -= dt;
           if (e.fireTimer <= 0 && Math.abs(e.x - px) < this.width * 0.45) {
             const ang = this._aimAngle(e.x, e.y, 230);
-            this._spawnEnemyBullet(e.x, e.y + 12, Math.cos(ang) * 230, Math.sin(ang) * 230, '#22d3ee', 5);
-            e.fireTimer = 2.3;
+            this._spawnEnemyBullet(e.x, e.y + 12, Math.cos(ang) * 230, Math.sin(ang) * 230, '#e879f9', 5);
+            e.fireTimer = 2.3 * this._fireGap();
           }
         } else if (e.type === 'bomber') {
           e.x += (e.vx + Math.sin(e.phase * 0.5) * 20) * dt;
@@ -1716,7 +2167,7 @@
           e.mineTimer -= dt;
           if (e.mineTimer <= 0 && e.y < py - 140) {
             this._spawnMine(e.x + (Math.random() - 0.5) * 30, e.y - 34);
-            e.mineTimer = 1.7;
+            e.mineTimer = 1.7 * this._fireGap();
           }
           e.fireTimer -= dt;
           if (e.fireTimer <= 0 && e.y < py - 80) {
@@ -1724,7 +2175,7 @@
               const a = Math.PI * 0.5 + s * 0.2;
               this._spawnEnemyBullet(e.x, e.y + 30, Math.cos(a) * 170, Math.sin(a) * 170, '#f59e0b', 6.5);
             }
-            e.fireTimer = 2.4;
+            e.fireTimer = 2.4 * this._fireGap();
           }
         } else if (e.type === 'sentinel') {
           const parkWorldY = skyTopY + this.height * e.parkY;
@@ -1784,14 +2235,14 @@
             if (e.type === 'scout') {
               const ang = this._aimAngle(e.x, e.y, 245);
               this._spawnEnemyBullet(e.x, e.y + 14, Math.cos(ang) * 245, Math.sin(ang) * 245, '#e11d48', 5.5);
-              e.fireTimer = 1.9;
+              e.fireTimer = 1.9 * this._fireGap();
             } else if (e.type === 'gunship') {
               const baseAng = this._aimAngle(e.x, e.y, 255);
               for (let s = -1; s <= 1; s++) {
                 const a = baseAng + s * 0.22;
                 this._spawnEnemyBullet(e.x, e.y + 22, Math.cos(a) * 255, Math.sin(a) * 255, '#ea580c', 6);
               }
-              e.fireTimer = 1.55;
+              e.fireTimer = 1.55 * this._fireGap();
             }
           }
         }
@@ -1845,7 +2296,9 @@
         }
       }
       const loopBoost = 1 + this.loopIndex * 0.12;
-      const rate = (e.enraged ? 0.78 : 1) / loopBoost;
+      // Earlier blockades fire a little slower: act I is where people learn the boss mechanics
+      const storyEase = this.loopIndex === 0 ? [1.25, 1.1, 1][this.getCurrentChapter().idx] : 1;
+      const rate = ((e.enraged ? 0.78 : 1) / loopBoost) * storyEase;
 
       // Continuous streams (spirals) run alongside the discrete pattern cycle
       if (e.streamLeft > 0) {
@@ -1860,7 +2313,7 @@
             this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(a) * 200, Math.sin(a) * 200, def.bullet, 5.5);
             if (e.enraged && e.bossKind === 'mother') {
               const b = -e.spin * 1.1 + (k / arms) * Math.PI * 2;
-              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(b) * 150, Math.sin(b) * 150, def.accent, 5);
+              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(b) * 150, Math.sin(b) * 150, def.bulletAlt, 5);
             }
           }
         }
@@ -1940,7 +2393,7 @@
           for (const side of [-70, 70]) {
             for (let s = 0; s < 6; s++) {
               const a = Math.PI * 0.5 + (side < 0 ? -1 : 1) * (0.15 + s * 0.12);
-              this._spawnEnemyBullet(e.x + side, e.y + 10, Math.cos(a) * 240, Math.sin(a) * 240, def.accent, 5.5);
+              this._spawnEnemyBullet(e.x + side, e.y + 10, Math.cos(a) * 240, Math.sin(a) * 240, def.bulletAlt, 5.5);
             }
           }
           e.fireTimer = 1.0 * rate;
@@ -1968,7 +2421,7 @@
             for (let k = 0; k < n; k++) {
               const a = (k / n) * Math.PI * 2 + ring * (Math.PI / n);
               const spd = 170 + ring * 60;
-              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(a) * spd, Math.sin(a) * spd, ring ? def.accent : def.bullet, 6);
+              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(a) * spd, Math.sin(a) * spd, ring ? def.bulletAlt : def.bullet, 6);
             }
           }
           e.fireTimer = 1.3 * rate;
@@ -2128,6 +2581,8 @@
         }
 
         if (d < collectR) {
+          this._tip(pw.kind);
+          if (this.tutorial && pw.tutorial) this.tutorial.picked = pw.kind;
           let text = '';
           let color = '#fef08a';
           if (pw.kind === 'medal') {
@@ -2136,16 +2591,17 @@
             text = `★ ${this.medalValue}`;
             color = '#fde047';
             this.medalsCollected++;
+            if (this.medalsCollected === 3) this._tip('medal');
             this.medalValue = Math.min(1000, this.medalValue + 100);
           } else {
             this.sfx.powerup();
             if (pw.kind === 'weapon') {
-              if (p.weaponLv < 4) {
+              if (p.weaponLv < this.weaponCap) {
                 p.weaponLv++;
                 text = `火力升级 Lv.${p.weaponLv}！`;
               } else {
                 this.score += 300;
-                text = '满级火力 +300';
+                text = p.weaponLv >= MAX_WEAPON_LV ? '满级火力 +300' : `本幕火力已满 Lv.${p.weaponLv} · +300`;
               }
             } else if (pw.kind === 'heal') {
               p.hp = Math.min(p.maxHp, p.hp + 30);
@@ -2176,7 +2632,7 @@
               color = '#6ee7b7';
             }
           }
-          this.floatingTexts.push({ x: px, y: py - 45, text, color, life: pw.kind === 'medal' ? 0.7 : 1.15, small: pw.kind === 'medal' });
+          if (pw.kind !== 'medal') this.floatingTexts.push({ x: px, y: py - 45, text, color, life: 1.15 });
           this.powerups.splice(i, 1);
           if (pw.kind !== 'medal') this._stateDirty = true;
           continue;
@@ -2193,6 +2649,19 @@
     _hurtPlayer(amount) {
       const p = this.player;
       if (p.invulnTimer > 0 || this.phase !== 'playing') return false;
+
+      if (this.tutorial) {
+        // Guided flight: show the hit, but never cost hull while learning
+        p.invulnTimer = 1.0;
+        const hx = this._playerWorldX();
+        const hy = this._playerWorldY();
+        this.screenShake = Math.max(this.screenShake, 6);
+        this._sfx('shieldBreak');
+        this.shockwaves.push({ x: hx, y: hy, r: 12, maxR: 110, color: '#f87171', life: 0.35, maxLife: 0.35, width: 4 });
+        this.floatingTexts.push({ x: hx, y: hy - 56, text: '被打中了！引导中不扣血', color: '#fecaca', life: 1.1 });
+        this.onTelemetry({ hitVibrate: true });
+        return true;
+      }
 
       if (p.shield > 0) {
         p.shield--;
@@ -2232,7 +2701,8 @@
       }
 
       p.hp = Math.max(0, p.hp - amount * this.tier.dmg);
-      if (p.weaponLv > 1 && Math.random() < 0.35) p.weaponLv--;
+      if (p.hp > 0 && p.hp <= p.maxHp * 0.35) this._tip('lowHp');
+      // Firepower never drops on a hit: strength only grows over the voyage
       this.onTelemetry({ hitVibrate: true });
 
       if (p.hp <= 0) {
@@ -2383,6 +2853,7 @@
         hp: Math.ceil((p.hp / p.maxHp) * 100),
         weaponLv: p.weaponLv,
         nukes: p.nukes,
+        coach: this._phoneCoach(),
         gustReady: p.gustCooldown <= 0 ? 1 : Number((1 - p.gustCooldown / p.gustMaxCooldown).toFixed(2)),
         railReady: p.railCooldown <= 0 ? 1 : 0,
         bossHp: this.boss ? Number((this.boss.hp / this.boss.maxHp).toFixed(2)) : 0,
@@ -2403,7 +2874,99 @@
       });
     }
 
+    // Compact hint for the phone cockpit: phone-specific wording plus which control to light up
+    _phoneCoach() {
+      const c = this.getCoach();
+      if (!c) return null;
+      if (c.kind === 'tutorial') {
+        return { kind: 'tutorial', title: `${c.step}/${c.total} ${c.title}${c.progress ? ` ${c.progress}` : ''}`, text: c.phone, target: c.target };
+      }
+      return { kind: 'tip', title: `${c.icon} ${c.title}`, text: c.text, target: '' };
+    }
+
     // ===================== RENDERING =====================
+
+    // Screen-space geometry of the corridor for this frame
+    _laneFrame(W, H, camX, camY, ax, ay) {
+      // Narrow (portrait phone) screens: a wider, straighter lane so the walls stay at the very edges
+      const narrow = W < 600;
+      const amp1 = narrow ? W * 0.05 : Math.min(W * 0.13, 150);
+      const amp2 = narrow ? W * 0.02 : Math.min(W * 0.05, 50);
+      const hw = narrow ? W * 0.42 : clamp(W * 0.3, 140, 330);
+      const off = clamp(((this._laneCamX ?? camX) - camX) * LANE_PF, -hw * 0.35, hw * 0.35);
+      const lyAt = (sy) => camY * LANE_PF + (sy - ay);
+      const curve = (ly) => amp1 * Math.sin(ly * 0.0011) + amp2 * Math.sin(ly * 0.0027 + 1.3);
+      const cxAt = (sy) => ax + off + curve(lyAt(sy));
+      return {
+        W, H, ax, ay, camX, camY, hw, lyAt, cxAt,
+        // 0.12 in the middle of the lane, 1 outside it: loose clouds & islands fade out of the flight path
+        mask: (sx, sy) => clamp((Math.abs(sx - cxAt(sy)) - hw * 0.45) / (hw * 0.6), 0.12, 1)
+      };
+    }
+
+    // Soft cloud banks on both sides of the lane (no markings, no lights: just the feeling of a corridor)
+    _renderLaneWalls(ctx, skyMode, calm) {
+      const L = this._lane;
+      if (!L) return;
+      const st = LANE_STYLE[skyMode] || LANE_STYLE.day;
+      const { W, H, ay, hw } = L;
+      const y0 = -H * 0.3;
+      const y1 = H * 1.3;
+      ctx.save();
+      if (this.rig.mode === 'tabletop') {
+        ctx.translate(L.ax, ay);
+        ctx.rotate(this.player.cameraRoll);
+        ctx.translate(-L.ax, -ay);
+      }
+      const strength = st.wallA * (0.55 + 0.45 * calm.cloud);
+      // Three soft strata per side give the walls a feathered inner edge
+      const strata = [{ inset: 0, a: 0.16 }, { inset: 30, a: 0.18 }, { inset: 78, a: 0.24 }];
+      for (const side of [-1, 1]) {
+        for (const layer of strata) {
+          ctx.fillStyle = `rgba(${st.wall}, ${(layer.a * strength).toFixed(3)})`;
+          ctx.beginPath();
+          let first = true;
+          for (let y = y0; y <= y1; y += 20) {
+            const ly = L.lyAt(y);
+            const bump = 16 * Math.sin(ly * 0.021 + side * 2) + 9 * Math.sin(ly * 0.053 + side);
+            const x = L.cxAt(y) + side * (hw + layer.inset + bump);
+            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+          }
+          const farX = side > 0 ? W * 1.7 : -W * 0.7;
+          ctx.lineTo(farX, y1);
+          ctx.lineTo(farX, y0);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Puffy cloud heads along the wall edge
+        ctx.fillStyle = `rgba(${st.wall}, ${(0.16 * strength).toFixed(3)})`;
+        const S = 95;
+        const k0 = Math.floor(L.lyAt(y0) / S);
+        const k1 = Math.ceil(L.lyAt(y1) / S);
+        ctx.beginPath();
+        for (let k = k0; k <= k1; k++) {
+          const sy = ay + k * S - L.camY * LANE_PF;
+          const hsh = hash2D(k, side > 0 ? 17 : 29);
+          const r = 26 + hsh * 30;
+          const x = L.cxAt(sy) + side * (hw + 24 + hsh * 30);
+          ctx.moveTo(x + r, sy);
+          ctx.arc(x, sy, r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // Scenery calm-down for the current phase, eased so take-off fades the sky back instead of snapping
+    _calmFactors(dt = 0) {
+      const target = this.phase === 'title' ? BG_CALM_TITLE : (BG_CALM[this.rig.bgDim] || BG_CALM.normal);
+      const cur = this._calm || (this._calm = { ...target });
+      if (dt > 0) {
+        const k = 1 - Math.exp(-dt * 2.2); // ~1s ease
+        for (const key of ['veil', 'cloud', 'sun', 'lines']) cur[key] = lerp(cur[key], target[key], k);
+      }
+      return cur;
+    }
 
     render() {
       const ctx = this.ctx;
@@ -2436,41 +2999,70 @@
       }
       ctx.fillStyle = skyGrad;
       ctx.fillRect(-30, -30, W + 60, H + 60);
-      this._renderSkyAtmosphere(ctx, W, H, skyMode);
+      const calm = this._calmFactors();
+      this._renderSkyAtmosphere(ctx, W, H, skyMode, calm);
 
       const px = this._playerWorldX();
       const py = this._playerWorldY();
       const anchorX = this.rig.mode === 'tabletop' ? W * 0.5 : this.player.screenX;
       const anchorY = this.rig.mode === 'tabletop' ? H * this.rig.anchorY : this.player.screenY;
 
-      // 2. Camera-Rotated World Space
+      // 2. Scenery (background only), eased from the bright title look to the calmer combat look
+      const tabletopCam = this.rig.mode === 'tabletop';
+      const sceneCamX = tabletopCam ? px : W * 0.5 + (this.player.screenX - W * 0.5) * 0.18;
+      const sceneCamY = tabletopCam ? py : this.player.worldY;
+      this._lane = this._laneFrame(W, H, sceneCamX, sceneCamY, tabletopCam ? anchorX : W * 0.5, tabletopCam ? anchorY : H * 0.5);
       ctx.save();
-      if (this.rig.mode === 'tabletop') {
+      if (tabletopCam) {
         ctx.translate(anchorX, anchorY);
         ctx.rotate(this.player.cameraRoll);
         ctx.translate(-px, -py);
-        this._renderParallaxWorld(ctx, px, py, W, H, skyMode);
       } else {
         // Arcade: the plane moves on a fixed screen, so scroll the scenery with the voyage distance instead
-        const camX = W * 0.5 + (this.player.screenX - W * 0.5) * 0.18;
-        const camY = this.player.worldY;
-        ctx.save();
-        ctx.translate(W * 0.5 - camX, H * 0.5 - camY);
-        this._renderParallaxWorld(ctx, camX, camY, W, H, skyMode);
-        ctx.restore();
+        ctx.translate(W * 0.5 - sceneCamX, H * 0.5 - sceneCamY);
       }
+      this._renderParallaxWorld(ctx, sceneCamX, sceneCamY, W, H, skyMode, calm);
+      ctx.restore();
+      this._renderLaneWalls(ctx, skyMode, calm);
+      if (calm.veil > 0.005) {
+        ctx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
+        ctx.fillRect(-30, -30, W + 60, H + 60);
+      }
+
+      const applyCam = () => {
+        if (this.rig.mode === 'tabletop') {
+          ctx.translate(anchorX, anchorY);
+          ctx.rotate(this.player.cameraRoll);
+          ctx.translate(-px, -py);
+        }
+      };
+
+      // 3. Mid layer: pickups, enemies, explosions, then our own shots (explosions never hide bullets)
       if (this.phase !== 'title') {
+        ctx.save();
+        applyCam();
         if (this.phase === 'playing') this._renderHazards(ctx, py, H);
         this._renderPowerups(ctx);
         this._renderEnemies(ctx, py);
-        this._renderBullets(ctx);
-        this._renderRailBeam(ctx, px, py, H);
         this._renderParticlesAndWaves(ctx);
+        this._renderPlayerBullets(ctx);
+        this._renderRailBeam(ctx, px, py, H);
+        ctx.restore();
       }
-      ctx.restore();
 
-      // 3. Player Craft / Tabletop Helipad Layer (visible on Title, Playing, or whenever Calibrating!)
+      // 4. Player Craft / Tabletop Helipad Layer (visible on Title, Playing, or whenever Calibrating!)
       if (this.phase !== 'gameover' || this.calibDrawerOpen) {
+        // Soft dark pocket behind the craft: bright clouds can never swallow its outline
+        if (this.phase === 'playing' && calm.veil > 0) {
+          const ax = anchorX;
+          const ay = anchorY;
+          const rr = this.rig.mode === 'tabletop' ? Math.max(this.rig.width, this.rig.length) * 0.95 : 70;
+          const pocket = ctx.createRadialGradient(ax, ay, rr * 0.2, ax, ay, rr);
+          pocket.addColorStop(0, `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${(0.12 + calm.veil * 0.4).toFixed(3)})`);
+          pocket.addColorStop(1, `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, 0)`);
+          ctx.fillStyle = pocket;
+          ctx.fillRect(ax - rr, ay - rr, rr * 2, rr * 2);
+        }
         if (this.rig.mode === 'tabletop') {
           this._renderTabletopRig(ctx, W * 0.5, H * this.rig.anchorY);
         } else {
@@ -2478,17 +3070,27 @@
         }
       }
 
-      // 4. Foreground Wind Streaks
+      // Foreground gust streaks stay below the danger layer
       this._renderForegroundWind(ctx, W, H);
 
-      // 5. Screen Flash, storm lightning & low-HP vignette
+      // 5. Top layer: enemy bullets above everything (craft, flames, explosions), then floating text
+      if (this.phase !== 'title') {
+        ctx.save();
+        applyCam();
+        this._renderEnemyBullets(ctx);
+        this._renderFloatingTexts(ctx);
+        ctx.restore();
+      }
+
+      // 6. Screen flash & storm lightning: softened in flight so a white-out never hides incoming fire
+      const flashScale = this.phase === 'playing' ? 0.55 : 1;
       if (this.flashAlpha > 0.01) {
-        ctx.fillStyle = `rgba(255, 250, 235, ${this.flashAlpha.toFixed(3)})`;
+        ctx.fillStyle = `rgba(255, 250, 235, ${(this.flashAlpha * flashScale).toFixed(3)})`;
         ctx.fillRect(0, 0, W, H);
       }
       if (this.lightningFlash > 0.01) {
         const flicker = this.lightningFlash * (0.55 + 0.45 * Math.abs(Math.sin(this.time * 47)));
-        ctx.fillStyle = `rgba(224, 231, 255, ${(flicker * 0.45).toFixed(3)})`;
+        ctx.fillStyle = `rgba(224, 231, 255, ${(flicker * 0.45 * flashScale).toFixed(3)})`;
         ctx.fillRect(0, 0, W, H);
       }
       if (this.phase === 'playing' && this.player.hp <= this.player.maxHp * 0.3 && !this.rig.godMode) {
@@ -2510,9 +3112,12 @@
       ctx.restore();
     }
 
-    _renderSkyAtmosphere(ctx, W, H, skyMode) {
+    _renderSkyAtmosphere(ctx, W, H, skyMode, calm = BG_CALM_TITLE) {
       const p = this.player;
       const t = this.time;
+      ctx.save();
+      // Sun glare and twinkling stars compete with bullets (bright round dots) - tone them down in flight
+      ctx.globalAlpha = skyMode === 'night' ? 1 : calm.sun;
       if (skyMode === 'day') {
         const sx = W * 0.84;
         const sy = H * 0.06;
@@ -2552,13 +3157,15 @@
         const offX = p.worldX * 0.02;
         const offY = p.worldY * 0.015;
         ctx.fillStyle = '#f8fafc';
+        const starA = 0.25 + calm.lines * 0.75;
+        const starS = 0.55 + calm.lines * 0.45;
         for (const st of this._stars) {
           const x = (((st.x * W - offX) % W) + W) % W;
           const y = (((st.y * H - offY) % H) + H) % H;
-          ctx.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + st.tw));
-          ctx.fillRect(x, y, st.s, st.s);
+          ctx.globalAlpha = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + st.tw))) * starA;
+          ctx.fillRect(x, y, st.s * starS, st.s * starS);
         }
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = 0.5 + calm.cloud * 0.5;
         // Aurora ribbons
         const bands = [
           { c: '52, 211, 153', y: 0.12, a: 0.16, f: 0.0016, sp: 0.35 },
@@ -2582,6 +3189,7 @@
           ctx.fill();
         }
       }
+      ctx.restore();
     }
 
     _renderHazards(ctx, py, H) {
@@ -2626,7 +3234,7 @@
       }
     }
 
-    _renderParallaxWorld(ctx, camX, camY, W, H, skyMode) {
+    _renderParallaxWorld(ctx, camX, camY, W, H, skyMode, calm = BG_CALM_TITLE) {
       const pad = Math.hypot(W, H) * 0.72;
       const p0 = 0.38;
       const cell = 220;
@@ -2642,6 +3250,7 @@
         ? 'rgba(255, 255, 255, 0.16)'
         : (skyMode === 'sunset' ? 'rgba(254, 215, 170, 0.14)' : 'rgba(56, 189, 248, 0.08)');
       ctx.lineWidth = 1;
+      ctx.globalAlpha = calm.lines;
       ctx.beginPath();
       for (let gx = startGX; gx <= endGX; gx++) {
         const wx = gx * cell + effX0;
@@ -2655,7 +3264,8 @@
       }
       ctx.stroke();
 
-      // Procedural islands
+      // Procedural islands (saturated green blobs: pushed back even further than clouds)
+      const islandA = calm.cloud * (calm.cloud < 1 ? 0.75 : 1);
       for (let gx = startGX; gx <= endGX; gx++) {
         for (let gy = startGY; gy <= endGY; gy++) {
           const h = hash2D(gx, gy);
@@ -2663,6 +3273,7 @@
             const wx = (gx + 0.25 + (h * 13 % 0.5)) * cell + effX0;
             const wy = (gy + 0.25 + (h * 29 % 0.5)) * cell + effY0;
             const r = 24 + (h - 0.68) * 150;
+            ctx.globalAlpha = islandA * this._laneMaskWorld(wx, wy, camX, camY);
             ctx.fillStyle = skyMode === 'day'
               ? 'rgba(254, 243, 199, 0.45)'
               : (skyMode === 'sunset' ? 'rgba(124, 45, 18, 0.42)' : 'rgba(20, 83, 116, 0.36)');
@@ -2687,8 +3298,11 @@
         ? 'rgba(255, 255, 255, 0.62)'
         : (skyMode === 'sunset' ? 'rgba(255, 237, 213, 0.38)' : 'rgba(224, 242, 254, 0.15)');
 
+      ctx.globalAlpha = calm.cloud;
       this._renderCloudLayer(ctx, camX, camY, pad, 0.78, 300, c1, 71);
       this._renderCloudLayer(ctx, camX, camY, pad, 1.28, 260, c2, 193);
+      // Speed lines are thin bright vertical strokes - exactly what a player shot looks like - so fade them hardest
+      ctx.globalAlpha = calm.lines;
 
       // Airflow speed lines
       const boostRatio = clamp((this.player.cruiseSpeed - 280) / 300, 0, 1);
@@ -2718,6 +3332,7 @@
         }
       }
       ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     _renderCloudLayer(ctx, camX, camY, pad, factor, cell, fillStyle, seedOffset) {
@@ -2729,6 +3344,7 @@
       const y1 = Math.ceil((camY + pad - effY) / cell);
 
       ctx.fillStyle = fillStyle;
+      const baseA = ctx.globalAlpha;
       for (let gx = x0; gx <= x1; gx++) {
         for (let gy = y0; gy <= y1; gy++) {
           const h = hash2D(gx + seedOffset, gy - seedOffset);
@@ -2736,6 +3352,7 @@
             const wx = (gx + (h * 19 % 0.8)) * cell + effX;
             const wy = (gy + (h * 43 % 0.8)) * cell + effY;
             const r = 34 + (h - 0.6) * 145;
+            ctx.globalAlpha = baseA * this._laneMaskWorld(wx, wy, camX, camY);
             ctx.beginPath();
             ctx.arc(wx, wy, r, 0, Math.PI * 2);
             ctx.arc(wx + r * 0.68, wy + r * 0.16, r * 0.76, 0, Math.PI * 2);
@@ -2744,6 +3361,14 @@
           }
         }
       }
+      ctx.globalAlpha = baseA;
+    }
+
+    // Lane mask for a scenery point given in the scenery's own (camera) coordinates
+    _laneMaskWorld(wx, wy, camX, camY) {
+      const L = this._lane;
+      if (!L) return 1;
+      return L.mask(L.ax + (wx - camX), L.ay + (wy - camY));
     }
 
     _traceRigShapePath(ctx, w, l, shape) {
@@ -3029,9 +3654,12 @@
       ctx.scale(bankScale, 1);
       ctx.rotate(p.bank * 0.14);
 
-      ctx.fillStyle = '#f8fafc';
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 1.5;
+      ctx.fillStyle = '#f1f5f9';
+      ctx.strokeStyle = '#0b1220';
+      ctx.lineWidth = 2.4;
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(56, 189, 248, 0.55)';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
       ctx.moveTo(0, -30);
       ctx.lineTo(32, 12);
@@ -3044,6 +3672,7 @@
       ctx.lineTo(-32, 12);
       ctx.closePath();
       ctx.fill();
+      ctx.shadowBlur = 0;
       ctx.stroke();
 
       ctx.fillStyle = '#ea580c';
@@ -3521,17 +4150,31 @@
       ctx.fill();
     }
 
-    _renderBullets(ctx) {
+    // Our shots: long capsules in the cyan / white / green family (never the enemies' warm colours),
+    // with a thin dark rim so they read on bright clouds, slightly translucent so they never hide enemy fire.
+    _renderPlayerBullets(ctx) {
+      ctx.save();
       for (const b of this.bullets) {
-        ctx.globalAlpha = 0.35;
+        const x = b.x - b.w * 0.5;
+        const y = b.y - b.h * 0.5;
+        const quiet = b.drone ? 0.6 : 1;
+        ctx.globalAlpha = 0.18 * quiet;
         ctx.fillStyle = b.color;
-        ctx.fillRect(b.x - b.w * 1.2, b.y - b.h * 0.6, b.w * 2.4, b.h * 1.2);
-        ctx.globalAlpha = 1;
-        ctx.fillRect(b.x - b.w * 0.5, b.y - b.h * 0.5, b.w, b.h);
-        ctx.fillStyle = '#f0f9ff';
-        ctx.fillRect(b.x - b.w * 0.18, b.y - b.h * 0.42, b.w * 0.36, b.h * 0.7);
+        ctx.fillRect(b.x - b.w * 1.1, b.y - b.h * 0.6, b.w * 2.2, b.h * 1.2);
+        ctx.globalAlpha = 0.3 * quiet;
+        ctx.fillStyle = '#0b1a33';
+        ctx.fillRect(x - 0.75, y - 0.75, b.w + 1.5, b.h + 1.5);
+        ctx.globalAlpha = 0.72 * quiet;
+        ctx.fillStyle = b.color;
+        ctx.fillRect(x, y, b.w, b.h);
+        ctx.fillStyle = '#f8fdff';
+        ctx.fillRect(b.x - b.w * 0.2, y + b.h * 0.08, b.w * 0.4, b.h * 0.7);
       }
+      ctx.restore();
+    }
 
+    // Enemy fire is the top layer: drawn above the craft, flames, explosions and wind.
+    _renderEnemyBullets(ctx) {
       for (const eb of this.enemyBullets) {
         const spr = this._bulletSprite(eb.color, eb.r);
         ctx.drawImage(spr.canvas, eb.x - spr.half, eb.y - spr.half, spr.half * 2, spr.half * 2);
@@ -3552,13 +4195,19 @@
       const g = c.getContext('2d');
       g.scale(scale, scale);
       g.translate(half, half);
-      g.globalAlpha = 0.28;
+      // Classic danmaku read: coloured glow, dark rim, coloured body, white-hot core.
+      // The rim separates it from bright sky / clouds, the core and glow from dark sky.
+      g.globalAlpha = 0.3;
       g.fillStyle = color;
       g.beginPath(); g.arc(0, 0, r * 1.8, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = 0.9;
+      g.fillStyle = '#0b1220';
+      g.beginPath(); g.arc(0, 0, r + 1.6, 0, Math.PI * 2); g.fill();
       g.globalAlpha = 1;
+      g.fillStyle = color;
       g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
       g.fillStyle = '#ffffff';
-      g.beginPath(); g.arc(0, 0, r * 0.45, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(0, 0, r * 0.5, 0, Math.PI * 2); g.fill();
       spr = { canvas: c, half };
       if (this._spriteCache.size > 64) this._spriteCache.clear();
       this._spriteCache.set(key, spr);
@@ -3706,14 +4355,18 @@
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+    }
 
+    // Battlefield text is kept small and sparse: only the 3 newest messages show, at reduced opacity
+    _renderFloatingTexts(ctx) {
       if (!this.rig.pureCamera) {
         ctx.textAlign = 'center';
-        for (const ft of this.floatingTexts) {
+        const shown = this.floatingTexts.slice(-3);
+        for (const ft of shown) {
           const age = (ft.maxLife || (ft.maxLife = ft.life)) - ft.life;
           const pop = ft.big ? 1 + Math.max(0, 0.35 - age) * 1.6 : 1;
-          const size = ft.big ? 22 : (ft.small ? 12 : 15);
-          ctx.globalAlpha = clamp(ft.life * 1.5, 0, 1);
+          const size = ft.big ? 16 : (ft.small ? 11 : 12.5);
+          ctx.globalAlpha = clamp(ft.life * 1.5, 0, 1) * 0.85;
           ctx.font = `800 ${Math.round(size * pop)}px system-ui, -apple-system, sans-serif`;
           ctx.fillStyle = '#0f172a';
           ctx.fillText(ft.text, ft.x + 1, ft.y + 1.5);
@@ -3731,7 +4384,7 @@
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2.6;
       for (const ws of this.windStreaks) {
-        ctx.globalAlpha = clamp((ws.a || 0.78) * Math.min(1, ws.life * 3), 0, 1);
+        ctx.globalAlpha = clamp((ws.a || 0.78) * 0.6 * Math.min(1, ws.life * 3), 0, 1);
         ctx.beginPath();
         ctx.moveTo(ws.ox, ws.oy);
         ctx.lineTo(ws.ox, ws.oy + ws.len);
@@ -3758,13 +4411,13 @@
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      const boxW = Math.min(sb.victory ? 560 : 500, W - 32);
-      const boxH = sb.victory ? 72 : 62;
+      const boxW = Math.min(sb.victory ? 520 : 460, W - 32);
+      const boxH = sb.victory ? 64 : 54;
       const boxX = (W - boxW) * 0.5;
       const boxY = (this.boss ? this._bossBarY(W) + 36 : this._bannerBaseY(W)) + slide;
       const accent = sb.alert ? '#f87171' : (sb.victory ? '#fde047' : '#38bdf8');
 
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.8)';
+      ctx.fillStyle = 'rgba(7, 20, 38, 0.66)';
       this._roundRectPath(ctx, boxX, boxY, boxW, boxH, 14);
       ctx.fill();
       ctx.strokeStyle = accent;
@@ -3776,31 +4429,35 @@
       ctx.fillRect(boxX + 18, boxY + boxH - 3, (boxW - 36) * clamp(sb.timer / sb.maxTimer, 0, 1), 2);
 
       ctx.fillStyle = sb.alert ? '#fecaca' : '#fde047';
-      ctx.font = `800 ${sb.victory ? 19 : 16}px system-ui, -apple-system, sans-serif`;
+      ctx.font = `800 ${sb.victory ? 17 : 15}px system-ui, -apple-system, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(sb.title, W * 0.5, boxY + (sb.victory ? 30 : 26));
+      ctx.fillText(sb.title, W * 0.5, boxY + (sb.victory ? 26 : 23), boxW - 24);
 
       ctx.fillStyle = '#f1f5f9';
-      ctx.font = '500 12.5px system-ui, -apple-system, sans-serif';
-      ctx.fillText(sb.subtitle, W * 0.5, boxY + (sb.victory ? 54 : 47), boxW - 24);
+      ctx.font = '500 12px system-ui, -apple-system, sans-serif';
+      ctx.fillText(sb.subtitle, W * 0.5, boxY + (sb.victory ? 48 : 42), boxW - 24);
       ctx.restore();
     }
 
     _hudPanelW(W) {
-      return W < 560 ? Math.min(W - 24, 300) : 330;
+      return W < 560 ? 172 : 196;
+    }
+
+    _hudPanelH() {
+      return (this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
     }
 
     // Boss bar and banners sit beside the score panel on wide screens, beneath it on narrow ones
     _bossBarY(W) {
-      const barW = Math.min(520, W - 40);
+      const barW = Math.min(480, W - 40);
       const clearsPanel = (W - barW) * 0.5 - 10 > 12 + this._hudPanelW(W) + 8;
-      return this.hudTop + (clearsPanel ? 18 : 122);
+      return this.hudTop + (clearsPanel ? 18 : this._hudPanelH() + 26);
     }
 
     _bannerBaseY(W) {
-      const boxW = Math.min(560, W - 32);
+      const boxW = Math.min(460, W - 32);
       const clearsPanel = (W - boxW) * 0.5 > 12 + this._hudPanelW(W) + 8;
-      return this.hudTop + (clearsPanel ? 4 : 112);
+      return this.hudTop + (clearsPanel ? 4 : this._hudPanelH() + 10);
     }
 
     _renderBossBar(ctx, W) {
@@ -3808,7 +4465,7 @@
       if (!b || this.phase !== 'playing') return;
       const def = BOSS_DEFS[b.bossKind] || BOSS_DEFS.fog;
       const intro = clamp(1 - this.bossIntro / 2.6 + 0.25, 0, 1);
-      const barW = Math.min(520, W - 40);
+      const barW = Math.min(480, W - 40);
       const x = (W - barW) * 0.5;
       const y = this._bossBarY(W);
       ctx.save();
@@ -3835,108 +4492,163 @@
       ctx.restore();
     }
 
+    // Compact, see-through HUD: score, hull, loadout and how far the chapter has come.
+    // It fades out whenever the craft or a pickup flies underneath, so it never hides the action.
     _renderMinimalHUD(ctx, W, H) {
       const p = this.player;
       const ch = this.getCurrentChapter();
-      const narrow = W < 560;
       const panelW = this._hudPanelW(W);
+      const panelH = this._hudPanelH();
+      const x0 = 12;
+      const y0 = this.hudTop;
+
+      const sx = this.rig.mode === 'tabletop' ? W * 0.5 : p.screenX;
+      const sy = this.rig.mode === 'tabletop' ? H * this.rig.anchorY : p.screenY;
+      const under = sx < x0 + panelW + 50 && sy < y0 + panelH + 60;
+      this._hudAlpha = lerp(this._hudAlpha ?? 1, under ? 0.28 : 1, 0.15);
+
       ctx.save();
-      ctx.translate(0, this.hudTop - 12);
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.6)';
-      this._roundRectPath(ctx, 12, 12, panelW, 80, 12);
+      ctx.globalAlpha = this._hudAlpha;
+      ctx.fillStyle = 'rgba(7, 20, 38, 0.42)';
+      this._roundRectPath(ctx, x0, y0, panelW, panelH, 12);
       ctx.fill();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+      ctx.shadowBlur = 3;
 
+      const L = x0 + 10;
+      const R = x0 + panelW - 10;
+      // Row 1: score + distance
       ctx.textAlign = 'left';
-      ctx.font = '800 15px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.font = '800 14px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillStyle = '#f8fafc';
-      ctx.fillText(String(Math.floor(this.score)).padStart(7, '0'), 22, 32);
-      ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.fillStyle = '#94a3b8';
-      const hi = Math.max(this.best.score, Math.floor(this.score));
-      ctx.fillText(`HI ${String(hi).padStart(7, '0')} · ${this.distanceKm.toFixed(1)} km`, 100, 31);
+      ctx.fillText(String(Math.floor(this.score)).padStart(7, '0'), L, y0 + 18);
+      ctx.textAlign = 'right';
+      ctx.font = '600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText(`${this.distanceKm.toFixed(1)} km`, R, y0 + 17);
 
-      // Segmented hull bar
-      const barW = panelW - 120;
-      const segs = 10;
+      // Row 2: hull bar + shield pips
+      ctx.shadowBlur = 0;
+      const pipsW = 26;
+      const barW = panelW - 20 - pipsW;
       const frac = clamp(p.hp / p.maxHp, 0, 1);
-      for (let k = 0; k < segs; k++) {
-        const sx = 22 + k * (barW / segs);
-        const filled = frac * segs - k;
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(sx, 41, barW / segs - 2, 7);
-        if (filled > 0) {
-          ctx.fillStyle = frac > 0.6 ? '#38bdf8' : (frac > 0.3 ? '#facc15' : '#ef4444');
-          ctx.fillRect(sx, 41, (barW / segs - 2) * clamp(filled, 0, 1), 7);
-        }
-      }
-      // Shield pips
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+      this._roundRectPath(ctx, L, y0 + 25, barW, 6, 3);
+      ctx.fill();
+      ctx.fillStyle = this.rig.godMode ? '#fde047' : (frac > 0.6 ? '#38bdf8' : (frac > 0.3 ? '#facc15' : '#ef4444'));
+      this._roundRectPath(ctx, L, y0 + 25, Math.max(4, barW * frac), 6, 3);
+      ctx.fill();
       for (let k = 0; k < 2; k++) {
         ctx.strokeStyle = '#67e8f9';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.4;
         ctx.beginPath();
-        ctx.arc(22 + barW + 12 + k * 16, 44.5, 5, 0, Math.PI * 2);
+        ctx.arc(R - pipsW + 7 + k * 12, y0 + 28, 4, 0, Math.PI * 2);
         if (k < p.shield) {
           ctx.fillStyle = '#67e8f9';
           ctx.fill();
         }
         ctx.stroke();
       }
-      // Weapon level pips + drones + nukes
-      ctx.font = '700 11px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText('火力', 22, 66);
-      for (let k = 0; k < 4; k++) {
-        ctx.fillStyle = k < p.weaponLv ? '#fde047' : 'rgba(148, 163, 184, 0.35)';
-        ctx.fillRect(48 + k * 9, 58, 6, 9);
+
+      // Row 3: firepower pips (dim beyond this act's ceiling), wingmen, nukes, gust readiness
+      const ry = y0 + 46;
+      ctx.textAlign = 'left';
+      ctx.font = '800 11px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('P', L, ry);
+      for (let k = 0; k < MAX_WEAPON_LV; k++) {
+        ctx.fillStyle = k < p.weaponLv ? '#fde047' : (k < this.weaponCap ? 'rgba(226, 232, 240, 0.4)' : 'rgba(148, 163, 184, 0.14)');
+        ctx.fillRect(L + 11 + k * 7, ry - 8, 5, 9);
       }
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText(`僚机×${p.droneCount}  核弹×${p.nukes}`, 92, 66);
+      ctx.font = '700 11px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = p.droneCount > 0 ? '#6ee7b7' : '#64748b';
+      ctx.fillText(`D${p.droneCount}`, L + 52, ry);
+      ctx.fillStyle = p.nukes > 0 ? '#fb923c' : '#64748b';
+      ctx.fillText(`N${p.nukes}`, L + 76, ry);
       const gustPct = p.gustCooldown <= 0 ? 1 : 1 - p.gustCooldown / p.gustMaxCooldown;
-      ctx.fillStyle = gustPct >= 1 ? '#a5f3fc' : '#64748b';
-      ctx.fillText(gustPct >= 1 ? '顺风✓' : `顺风${Math.floor(gustPct * 100)}%`, 196, 66);
+      const gx = L + 112;
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(gx, ry - 4, 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = gustPct >= 1 ? '#a5f3fc' : '#64748b';
+      ctx.beginPath();
+      ctx.arc(gx, ry - 4, 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * gustPct);
+      ctx.stroke();
+      ctx.fillStyle = gustPct >= 1 ? '#a5f3fc' : '#94a3b8';
+      ctx.fillText(gustPct >= 1 ? '顺风' : '充能', gx + 10, ry);
 
-      ctx.font = '600 11.5px system-ui, -apple-system, sans-serif';
+      // Row 4: chapter progress towards the blockade (or tutorial / boss state)
+      const py4 = y0 + 61;
+      ctx.font = '700 10px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = '#cbd5e1';
-      const tierTag = this.rig.difficulty !== 'normal' ? ` · ${this.tier.label}` : '';
-      ctx.fillText(`${ch.title}${tierTag}${this.rig.godMode ? ' · 亲子护航' : ''}`, 22, 84, panelW - 20);
+      const roman = ['Ⅰ', 'Ⅱ', 'Ⅲ'][ch.idx] || '';
+      const tag = ch.loop > 0 ? `∞${ch.loop + 1}·${roman}` : roman;
+      if (this.tutorial) {
+        ctx.fillStyle = '#fde68a';
+        ctx.fillText('🎓 新手引导中', L, py4);
+      } else if (this.boss) {
+        ctx.fillStyle = '#fca5a5';
+        ctx.fillText(`${tag} 封锁线交战中`, L, py4);
+      } else {
+        ctx.fillText(tag, L, py4);
+        const bx = L + 26;
+        const bw = panelW - 20 - 26 - 14;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+        ctx.fillRect(bx, py4 - 5, bw, 3);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(bx, py4 - 5, bw * this.chapterProgress, 3);
+        ctx.fillStyle = 'rgba(253, 230, 138, 0.9)';
+        ctx.fillRect(bx + bw * 0.5 - 1, py4 - 7, 2, 7); // supply drop marker
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fca5a5';
+        ctx.fillText('☠', R, py4);
+      }
 
-      // Combo meter (decays with the combo timer)
-      if (this.combo >= 3) {
-        const cx = W - 12 - 104;
-        const show = !narrow;
-        if (show) {
-          const mult = 1 + Math.min(2.0, this.combo * 0.05);
-          ctx.fillStyle = 'rgba(7, 20, 38, 0.6)';
-          this._roundRectPath(ctx, cx, 12, 104, 52, 12);
-          ctx.fill();
-          ctx.textAlign = 'center';
-          ctx.font = '900 20px system-ui, -apple-system, sans-serif';
-          ctx.fillStyle = this.combo >= 50 ? '#f472b6' : '#fde047';
-          ctx.fillText(`${this.combo}`, cx + 52, 36);
-          ctx.font = '700 10px system-ui, -apple-system, sans-serif';
-          ctx.fillStyle = '#e2e8f0';
-          ctx.fillText(`连击 ×${mult.toFixed(2)}`, cx + 52, 50);
-          ctx.fillStyle = '#fde047';
-          ctx.fillRect(cx + 10, 56, 84 * clamp(this.comboTimer / 3.2, 0, 1), 3);
+      // Row 5 (only while active): medal chain and lung gauge
+      if (panelH > 70) {
+        const r5 = y0 + 77;
+        ctx.textAlign = 'left';
+        ctx.font = '700 10px system-ui, -apple-system, sans-serif';
+        if (this.medalValue > 100) {
+          ctx.fillStyle = '#facc15';
+          ctx.fillText(`★${this.medalValue}`, L, r5);
+        }
+        if (this.breath > 0.1 || this.lungs < 0.999) {
+          const lx = L + 48;
+          ctx.fillStyle = this.lungsExhausted ? '#94a3b8' : '#a5f3fc';
+          ctx.fillText(this.lungsExhausted ? '换气中' : '肺活量', lx, r5);
+          const lw = R - (lx + 40);
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+          ctx.fillRect(lx + 40, r5 - 6, lw, 4);
+          ctx.fillStyle = this.lungsExhausted ? '#64748b' : '#67e8f9';
+          ctx.fillRect(lx + 40, r5 - 6, lw * clamp(this.lungs, 0, 1), 4);
         }
       }
-      ctx.textAlign = 'left';
-      ctx.font = '700 11px system-ui, -apple-system, sans-serif';
-      if (this.medalValue > 100) {
-        ctx.fillStyle = '#facc15';
-        ctx.fillText(`★ 金星连锁 ${this.medalValue}`, 22, 108);
-      }
-      if (this.breath > 0.1 || this.lungs < 0.999) {
-        // Lung gauge: drains while blowing, refills while resting
-        const gx = 150;
-        ctx.fillStyle = this.lungsExhausted ? '#94a3b8' : '#a5f3fc';
-        ctx.fillText(this.lungsExhausted ? '🫁 换气中' : '🍃 顺风推进', gx, 108);
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-        ctx.fillRect(gx + 70, 101, 80, 6);
-        ctx.fillStyle = this.lungsExhausted ? '#64748b' : '#67e8f9';
-        ctx.fillRect(gx + 70, 101, 80 * clamp(this.lungs, 0, 1), 6);
-      }
       ctx.restore();
+
+      // Combo: small, text-only, top-right below the pause button
+      if (this.combo >= 5) {
+        const mult = 1 + Math.min(2.0, this.combo * 0.05);
+        const cx = W - 16;
+        const cy = this.hudTop + 62;
+        ctx.save();
+        ctx.textAlign = 'right';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+        ctx.shadowBlur = 4;
+        const pulse = this.comboPulse > 0 ? 1 + this.comboPulse * 0.9 : 1;
+        ctx.font = `900 ${Math.round(18 * pulse)}px system-ui, -apple-system, sans-serif`;
+        ctx.fillStyle = this.combo >= 50 ? '#f472b6' : '#fde047';
+        ctx.fillText(`${this.combo}`, cx, cy);
+        ctx.font = '700 10px system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = '#f1f5f9';
+        ctx.fillText(`连击 ×${mult.toFixed(2)}`, cx, cy + 13);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fde047';
+        ctx.fillRect(cx - 54, cy + 18, 54 * clamp(this.comboTimer / 3.2, 0, 1), 2);
+        ctx.restore();
+      }
     }
   }
 
