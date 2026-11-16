@@ -126,10 +126,12 @@
   // darker, calmer, fewer bright shapes - so the craft and every bullet sit clearly on top of it.
   // veil = dark wash over the scenery, cloud = cloud & island opacity, sun = glare, lines = grid / speed lines / stars.
   const BG_CALM = {
-    normal: { label: '标准', veil: 0.26, cloud: 0.4, sun: 0.3, lines: 0.2 },
-    dark: { label: '压暗', veil: 0.4, cloud: 0.26, sun: 0.16, lines: 0.12 },
-    max: { label: '很暗', veil: 0.56, cloud: 0.14, sun: 0.06, lines: 0.06 }
+    normal: { label: '标准', veil: 0.3, cloud: 0.26, sun: 0.25, lines: 0.12 },
+    dark: { label: '压暗', veil: 0.42, cloud: 0.16, sun: 0.14, lines: 0.08 },
+    max: { label: '很暗', veil: 0.56, cloud: 0.08, sun: 0.06, lines: 0.04 }
   };
+  // Main guns fire 1.45x less often with 1.45x damage: same firepower, far fewer bars filling the screen
+  const SHOT_THIN = 1.45;
   const BG_CALM_TITLE = { veil: 0, cloud: 1, sun: 1, lines: 1 };
   const VEIL_RGB = { day: '10, 34, 66', sunset: '34, 12, 36', night: '2, 6, 18' };
   const TUTORIAL_KEY = 'skyStriker.tutorialDone.v1';
@@ -1107,6 +1109,7 @@
         if (this.comboTimer <= 0) this.combo = 0;
       }
       if (this.warnThrottle > 0) this.warnThrottle -= dt;
+      if (this.comboPulse > 0) this.comboPulse = Math.max(0, this.comboPulse - dt);
       for (const k in this.crewCd) if (this.crewCd[k] > 0) this.crewCd[k] = Math.max(0, this.crewCd[k] - dt);
       for (let i = this.marks.length - 1; i >= 0; i--) {
         this.marks[i].life -= dt;
@@ -1238,14 +1241,14 @@
       p.fireCooldown -= dt;
       if (inp.firing && inp.railCharge < 0.2 && p.railBeamTimer <= 0 && p.fireCooldown <= 0) {
         this._fireMainGuns(px, py);
-        p.fireCooldown = (p.weaponLv >= 4 ? (p.weaponLv >= 5 ? 0.088 : 0.095) : 0.115) * this.traits.fireRate;
+        p.fireCooldown = (p.weaponLv >= 4 ? (p.weaponLv >= 5 ? 0.088 : 0.095) : 0.115) * this.traits.fireRate * SHOT_THIN;
       }
 
       // Flanking Bit-Drones Auto Fire
       p.droneFireCooldown -= dt;
       if (inp.firing && p.droneCount > 0 && p.droneFireCooldown <= 0) {
         this._fireDroneGuns(px, py);
-        p.droneFireCooldown = 0.26;
+        p.droneFireCooldown = 0.42;
       }
 
       // Active Railgun Continuous Sweep Damage
@@ -1314,7 +1317,7 @@
       const SHOT = { '#0369a1': '#38bdf8', '#ea580c': '#7dd3fc', '#dc2626': '#e0f2fe' };
       const addShot = (ox, vx, dmg, color = '#0369a1', w = 4.5, h = 19) => {
         const heavy = this.traits.dmg;
-        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy, color: SHOT[color] || '#38bdf8', w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
+        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy * SHOT_THIN, color: SHOT[color] || '#38bdf8', w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
       };
 
       const spreadBase = this.rig.mode === 'tabletop' ? Math.min(26, this.rig.width * 0.24) : 11;
@@ -1375,7 +1378,7 @@
           vx = (aimX / len) * 780;
           vy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) + (aimY / len) * 780;
         }
-        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 10, color: '#4ade80', w: 4, h: 14, life: 1.2 });
+        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 16, color: '#4ade80', w: 3.5, h: 13, life: 1.2, drone: true });
       }
     }
 
@@ -1678,7 +1681,7 @@
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       if (this.combo > 0 && this.combo % 25 === 0) {
         this._sfx('comboMilestone', this.combo);
-        this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 92, text: `${this.combo} 连击！`, color: '#fde047', life: 1.2, big: true });
+        this.comboPulse = 0.6; // the HUD counter flashes; no big text in front of the craft
       }
       const mult = 1 + Math.min(2.0, this.combo * 0.05);
       const pts = Math.round(e.scoreVal * mult * (1 + this.loopIndex * 0.5));
@@ -2618,7 +2621,7 @@
               color = '#6ee7b7';
             }
           }
-          this.floatingTexts.push({ x: px, y: py - 45, text, color, life: pw.kind === 'medal' ? 0.7 : 1.15, small: pw.kind === 'medal' });
+          if (pw.kind !== 'medal') this.floatingTexts.push({ x: px, y: py - 45, text, color, life: 1.15 });
           this.powerups.splice(i, 1);
           if (pw.kind !== 'medal') this._stateDirty = true;
           continue;
@@ -4059,13 +4062,14 @@
       for (const b of this.bullets) {
         const x = b.x - b.w * 0.5;
         const y = b.y - b.h * 0.5;
-        ctx.globalAlpha = 0.28;
+        const quiet = b.drone ? 0.6 : 1;
+        ctx.globalAlpha = 0.18 * quiet;
         ctx.fillStyle = b.color;
-        ctx.fillRect(b.x - b.w * 1.25, b.y - b.h * 0.62, b.w * 2.5, b.h * 1.24);
-        ctx.globalAlpha = 0.55;
+        ctx.fillRect(b.x - b.w * 1.1, b.y - b.h * 0.6, b.w * 2.2, b.h * 1.2);
+        ctx.globalAlpha = 0.3 * quiet;
         ctx.fillStyle = '#0b1a33';
-        ctx.fillRect(x - 1, y - 1, b.w + 2, b.h + 2);
-        ctx.globalAlpha = 0.86;
+        ctx.fillRect(x - 0.75, y - 0.75, b.w + 1.5, b.h + 1.5);
+        ctx.globalAlpha = 0.72 * quiet;
         ctx.fillStyle = b.color;
         ctx.fillRect(x, y, b.w, b.h);
         ctx.fillStyle = '#f8fdff';
@@ -4258,14 +4262,16 @@
       ctx.globalAlpha = 1;
     }
 
+    // Battlefield text is kept small and sparse: only the 3 newest messages show, at reduced opacity
     _renderFloatingTexts(ctx) {
       if (!this.rig.pureCamera) {
         ctx.textAlign = 'center';
-        for (const ft of this.floatingTexts) {
+        const shown = this.floatingTexts.slice(-3);
+        for (const ft of shown) {
           const age = (ft.maxLife || (ft.maxLife = ft.life)) - ft.life;
           const pop = ft.big ? 1 + Math.max(0, 0.35 - age) * 1.6 : 1;
-          const size = ft.big ? 22 : (ft.small ? 12 : 15);
-          ctx.globalAlpha = clamp(ft.life * 1.5, 0, 1);
+          const size = ft.big ? 16 : (ft.small ? 11 : 12.5);
+          ctx.globalAlpha = clamp(ft.life * 1.5, 0, 1) * 0.85;
           ctx.font = `800 ${Math.round(size * pop)}px system-ui, -apple-system, sans-serif`;
           ctx.fillStyle = '#0f172a';
           ctx.fillText(ft.text, ft.x + 1, ft.y + 1.5);
@@ -4536,7 +4542,8 @@
         ctx.textAlign = 'right';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
         ctx.shadowBlur = 4;
-        ctx.font = '900 18px system-ui, -apple-system, sans-serif';
+        const pulse = this.comboPulse > 0 ? 1 + this.comboPulse * 0.9 : 1;
+        ctx.font = `900 ${Math.round(18 * pulse)}px system-ui, -apple-system, sans-serif`;
         ctx.fillStyle = this.combo >= 50 ? '#f472b6' : '#fde047';
         ctx.fillText(`${this.combo}`, cx, cy);
         ctx.font = '700 10px system-ui, -apple-system, sans-serif';
