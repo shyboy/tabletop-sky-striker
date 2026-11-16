@@ -133,6 +133,14 @@
   // Main guns fire 1.45x less often with 1.45x damage: same firepower, far fewer bars filling the screen
   const SHOT_THIN = 1.45;
   const BG_CALM_TITLE = { veil: 0, cloud: 1, sun: 1, lines: 1 };
+  // Corridor feel (like the avenues / canyons other vertical shooters fly along): soft cloud walls on both
+  // sides and a clean, gently winding lane in the middle where the craft and bullets stay readable.
+  const LANE_STYLE = {
+    day: { wall: '255, 255, 255', wallA: 1 },
+    sunset: { wall: '255, 214, 186', wallA: 0.75 },
+    night: { wall: '51, 85, 150', wallA: 0.95 }
+  };
+  const LANE_PF = 0.6; // the corridor scrolls a bit slower than the battle layer: it reads as terrain far below
   const VEIL_RGB = { day: '10, 34, 66', sunset: '34, 12, 36', night: '2, 6, 18' };
   const TUTORIAL_KEY = 'skyStriker.tutorialDone.v1';
 
@@ -1036,6 +1044,9 @@
     step(dt) {
       dt = Math.min(dt, 0.05);
       this._calmFactors(dt);
+      // The corridor lazily re-centres on the craft, so strafing shows motion but the lane never gets lost
+      const laneTarget = this.rig.mode === 'tabletop' ? this.player.worldX : this.width * 0.5 + (this.player.screenX - this.width * 0.5) * 0.18;
+      this._laneCamX = this._laneCamX === undefined ? laneTarget : lerp(this._laneCamX, laneTarget, 1 - Math.exp(-dt * 0.55));
       if (this._stateDirty) {
         this._stateDirty = false;
         this.onStateChange(this.getPublicState());
@@ -2875,6 +2886,77 @@
 
     // ===================== RENDERING =====================
 
+    // Screen-space geometry of the corridor for this frame
+    _laneFrame(W, H, camX, camY, ax, ay) {
+      // Narrow (portrait phone) screens: a wider, straighter lane so the walls stay at the very edges
+      const narrow = W < 600;
+      const amp1 = narrow ? W * 0.05 : Math.min(W * 0.13, 150);
+      const amp2 = narrow ? W * 0.02 : Math.min(W * 0.05, 50);
+      const hw = narrow ? W * 0.42 : clamp(W * 0.3, 140, 330);
+      const off = clamp(((this._laneCamX ?? camX) - camX) * LANE_PF, -hw * 0.35, hw * 0.35);
+      const lyAt = (sy) => camY * LANE_PF + (sy - ay);
+      const curve = (ly) => amp1 * Math.sin(ly * 0.0011) + amp2 * Math.sin(ly * 0.0027 + 1.3);
+      const cxAt = (sy) => ax + off + curve(lyAt(sy));
+      return {
+        W, H, ax, ay, camX, camY, hw, lyAt, cxAt,
+        // 0.12 in the middle of the lane, 1 outside it: loose clouds & islands fade out of the flight path
+        mask: (sx, sy) => clamp((Math.abs(sx - cxAt(sy)) - hw * 0.45) / (hw * 0.6), 0.12, 1)
+      };
+    }
+
+    // Soft cloud banks on both sides of the lane (no markings, no lights: just the feeling of a corridor)
+    _renderLaneWalls(ctx, skyMode, calm) {
+      const L = this._lane;
+      if (!L) return;
+      const st = LANE_STYLE[skyMode] || LANE_STYLE.day;
+      const { W, H, ay, hw } = L;
+      const y0 = -H * 0.3;
+      const y1 = H * 1.3;
+      ctx.save();
+      if (this.rig.mode === 'tabletop') {
+        ctx.translate(L.ax, ay);
+        ctx.rotate(this.player.cameraRoll);
+        ctx.translate(-L.ax, -ay);
+      }
+      const strength = st.wallA * (0.55 + 0.45 * calm.cloud);
+      // Three soft strata per side give the walls a feathered inner edge
+      const strata = [{ inset: 0, a: 0.16 }, { inset: 30, a: 0.18 }, { inset: 78, a: 0.24 }];
+      for (const side of [-1, 1]) {
+        for (const layer of strata) {
+          ctx.fillStyle = `rgba(${st.wall}, ${(layer.a * strength).toFixed(3)})`;
+          ctx.beginPath();
+          let first = true;
+          for (let y = y0; y <= y1; y += 20) {
+            const ly = L.lyAt(y);
+            const bump = 16 * Math.sin(ly * 0.021 + side * 2) + 9 * Math.sin(ly * 0.053 + side);
+            const x = L.cxAt(y) + side * (hw + layer.inset + bump);
+            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+          }
+          const farX = side > 0 ? W * 1.7 : -W * 0.7;
+          ctx.lineTo(farX, y1);
+          ctx.lineTo(farX, y0);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Puffy cloud heads along the wall edge
+        ctx.fillStyle = `rgba(${st.wall}, ${(0.16 * strength).toFixed(3)})`;
+        const S = 95;
+        const k0 = Math.floor(L.lyAt(y0) / S);
+        const k1 = Math.ceil(L.lyAt(y1) / S);
+        ctx.beginPath();
+        for (let k = k0; k <= k1; k++) {
+          const sy = ay + k * S - L.camY * LANE_PF;
+          const hsh = hash2D(k, side > 0 ? 17 : 29);
+          const r = 26 + hsh * 30;
+          const x = L.cxAt(sy) + side * (hw + 24 + hsh * 30);
+          ctx.moveTo(x + r, sy);
+          ctx.arc(x, sy, r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // Scenery calm-down for the current phase, eased so take-off fades the sky back instead of snapping
     _calmFactors(dt = 0) {
       const target = this.phase === 'title' ? BG_CALM_TITLE : (BG_CALM[this.rig.bgDim] || BG_CALM.normal);
@@ -2926,20 +3008,22 @@
       const anchorY = this.rig.mode === 'tabletop' ? H * this.rig.anchorY : this.player.screenY;
 
       // 2. Scenery (background only), eased from the bright title look to the calmer combat look
+      const tabletopCam = this.rig.mode === 'tabletop';
+      const sceneCamX = tabletopCam ? px : W * 0.5 + (this.player.screenX - W * 0.5) * 0.18;
+      const sceneCamY = tabletopCam ? py : this.player.worldY;
+      this._lane = this._laneFrame(W, H, sceneCamX, sceneCamY, tabletopCam ? anchorX : W * 0.5, tabletopCam ? anchorY : H * 0.5);
       ctx.save();
-      if (this.rig.mode === 'tabletop') {
+      if (tabletopCam) {
         ctx.translate(anchorX, anchorY);
         ctx.rotate(this.player.cameraRoll);
         ctx.translate(-px, -py);
-        this._renderParallaxWorld(ctx, px, py, W, H, skyMode, calm);
       } else {
         // Arcade: the plane moves on a fixed screen, so scroll the scenery with the voyage distance instead
-        const camX = W * 0.5 + (this.player.screenX - W * 0.5) * 0.18;
-        const camY = this.player.worldY;
-        ctx.translate(W * 0.5 - camX, H * 0.5 - camY);
-        this._renderParallaxWorld(ctx, camX, camY, W, H, skyMode, calm);
+        ctx.translate(W * 0.5 - sceneCamX, H * 0.5 - sceneCamY);
       }
+      this._renderParallaxWorld(ctx, sceneCamX, sceneCamY, W, H, skyMode, calm);
       ctx.restore();
+      this._renderLaneWalls(ctx, skyMode, calm);
       if (calm.veil > 0.005) {
         ctx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
         ctx.fillRect(-30, -30, W + 60, H + 60);
@@ -3181,7 +3265,7 @@
       ctx.stroke();
 
       // Procedural islands (saturated green blobs: pushed back even further than clouds)
-      ctx.globalAlpha = calm.cloud * (calm.cloud < 1 ? 0.75 : 1);
+      const islandA = calm.cloud * (calm.cloud < 1 ? 0.75 : 1);
       for (let gx = startGX; gx <= endGX; gx++) {
         for (let gy = startGY; gy <= endGY; gy++) {
           const h = hash2D(gx, gy);
@@ -3189,6 +3273,7 @@
             const wx = (gx + 0.25 + (h * 13 % 0.5)) * cell + effX0;
             const wy = (gy + 0.25 + (h * 29 % 0.5)) * cell + effY0;
             const r = 24 + (h - 0.68) * 150;
+            ctx.globalAlpha = islandA * this._laneMaskWorld(wx, wy, camX, camY);
             ctx.fillStyle = skyMode === 'day'
               ? 'rgba(254, 243, 199, 0.45)'
               : (skyMode === 'sunset' ? 'rgba(124, 45, 18, 0.42)' : 'rgba(20, 83, 116, 0.36)');
@@ -3259,6 +3344,7 @@
       const y1 = Math.ceil((camY + pad - effY) / cell);
 
       ctx.fillStyle = fillStyle;
+      const baseA = ctx.globalAlpha;
       for (let gx = x0; gx <= x1; gx++) {
         for (let gy = y0; gy <= y1; gy++) {
           const h = hash2D(gx + seedOffset, gy - seedOffset);
@@ -3266,6 +3352,7 @@
             const wx = (gx + (h * 19 % 0.8)) * cell + effX;
             const wy = (gy + (h * 43 % 0.8)) * cell + effY;
             const r = 34 + (h - 0.6) * 145;
+            ctx.globalAlpha = baseA * this._laneMaskWorld(wx, wy, camX, camY);
             ctx.beginPath();
             ctx.arc(wx, wy, r, 0, Math.PI * 2);
             ctx.arc(wx + r * 0.68, wy + r * 0.16, r * 0.76, 0, Math.PI * 2);
@@ -3274,6 +3361,14 @@
           }
         }
       }
+      ctx.globalAlpha = baseA;
+    }
+
+    // Lane mask for a scenery point given in the scenery's own (camera) coordinates
+    _laneMaskWorld(wx, wy, camX, camY) {
+      const L = this._lane;
+      if (!L) return 1;
+      return L.mask(L.ax + (wx - camX), L.ay + (wy - camY));
     }
 
     _traceRigShapePath(ctx, w, l, shape) {
