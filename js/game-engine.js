@@ -37,9 +37,9 @@
 
   // Per-chapter boss identity (distinct silhouettes, palettes and bullet choreography)
   const BOSS_DEFS = {
-    fog: { name: '灰雾封锁舰', hull: '#334155', trim: '#cbd5e1', core: '#94a3b8', bullet: '#64748b', accent: '#e2e8f0' },
-    storm: { name: '风暴铁幕舰', hull: '#3b0764', trim: '#fb923c', core: '#facc15', bullet: '#f97316', accent: '#fde68a' },
-    mother: { name: '深空母舰', hull: '#0f172a', trim: '#a78bfa', core: '#22d3ee', bullet: '#c084fc', accent: '#67e8f9' }
+    fog: { name: '灰雾封锁舰', hull: '#334155', trim: '#cbd5e1', core: '#94a3b8', bullet: '#f472b6', bulletAlt: '#fb7185', accent: '#e2e8f0' },
+    storm: { name: '风暴铁幕舰', hull: '#3b0764', trim: '#fb923c', core: '#facc15', bullet: '#f97316', bulletAlt: '#fde047', accent: '#fde68a' },
+    mother: { name: '深空母舰', hull: '#0f172a', trim: '#a78bfa', core: '#22d3ee', bullet: '#c084fc', bulletAlt: '#f0abfc', accent: '#67e8f9' }
   };
   const BOSS_ORDER = ['fog', 'storm', 'mother'];
 
@@ -121,6 +121,17 @@
   ];
 
   const TIPS_KEY = 'skyStriker.tips.v1';
+
+  // Combat readability (what Touhou / Cave / Raiden do): in flight the scenery is pushed back -
+  // darker, calmer, fewer bright shapes - so the craft and every bullet sit clearly on top of it.
+  // veil = dark wash over the scenery, cloud = cloud & island opacity, sun = glare, lines = grid / speed lines / stars.
+  const BG_CALM = {
+    normal: { label: '标准', veil: 0.26, cloud: 0.4, sun: 0.3, lines: 0.2 },
+    dark: { label: '压暗', veil: 0.4, cloud: 0.26, sun: 0.16, lines: 0.12 },
+    max: { label: '很暗', veil: 0.56, cloud: 0.14, sun: 0.06, lines: 0.06 }
+  };
+  const BG_CALM_TITLE = { veil: 0, cloud: 1, sun: 1, lines: 1 };
+  const VEIL_RGB = { day: '10, 34, 66', sunset: '34, 12, 36', night: '2, 6, 18' };
   const TUTORIAL_KEY = 'skyStriker.tutorialDone.v1';
 
   // Toy personality: what sits on the tablet changes how it flies
@@ -213,7 +224,8 @@
         godMode: false,     // Kid-friendly invincible escort mode
         difficulty: 'normal', // 'easy' | 'normal' | 'ace'
         hitSize: 'normal',    // bullet hit-core size: 'small' | 'normal' | 'large'
-        toyName: ''           // the kid's name for the toy, shown on banners and the keepsake card
+        toyName: '',          // the kid's name for the toy, shown on banners and the keepsake card
+        bgDim: 'normal'       // how far the scenery is pushed back in flight: 'normal' | 'dark' | 'max'
       };
 
       this.calibHighlightTimer = 0;
@@ -499,6 +511,7 @@
       if (patch.difficulty && DIFFICULTY[patch.difficulty]) this.rig.difficulty = patch.difficulty;
       if (patch.hitSize && HIT_SIZE[patch.hitSize]) this.rig.hitSize = patch.hitSize;
       if (typeof patch.toyName === 'string') this.rig.toyName = patch.toyName.trim().slice(0, 8);
+      if (patch.bgDim && BG_CALM[patch.bgDim]) this.rig.bgDim = patch.bgDim;
       // A new toy type before take-off changes the hull right away (mid-flight it keeps the current HP ratio)
       if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
@@ -1020,6 +1033,7 @@
 
     step(dt) {
       dt = Math.min(dt, 0.05);
+      this._calmFactors(dt);
       if (this._stateDirty) {
         this._stateDirty = false;
         this.onStateChange(this.getPublicState());
@@ -1296,10 +1310,11 @@
 
       this.sfx.laser(lv);
 
-      const addShot = (ox, vx, dmg, color = '#0284c7', w = 4.5, h = 19) => {
-        const brightColor = this.getEffectiveSky() === 'day' ? color : '#38bdf8';
+      // Player palette stays cool (cyan / ice / white) so it can never be mistaken for enemy fire
+      const SHOT = { '#0369a1': '#38bdf8', '#ea580c': '#7dd3fc', '#dc2626': '#e0f2fe' };
+      const addShot = (ox, vx, dmg, color = '#0369a1', w = 4.5, h = 19) => {
         const heavy = this.traits.dmg;
-        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy, color: brightColor, w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
+        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy, color: SHOT[color] || '#38bdf8', w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
       };
 
       const spreadBase = this.rig.mode === 'tabletop' ? Math.min(26, this.rig.width * 0.24) : 11;
@@ -1360,7 +1375,7 @@
           vx = (aimX / len) * 780;
           vy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) + (aimY / len) * 780;
         }
-        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 10, color: '#10b981', w: 4, h: 14, life: 1.2 });
+        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 10, color: '#4ade80', w: 4, h: 14, life: 1.2 });
       }
     }
 
@@ -2129,7 +2144,7 @@
           e.fireTimer -= dt;
           if (e.fireTimer <= 0 && Math.abs(e.x - px) < this.width * 0.45) {
             const ang = this._aimAngle(e.x, e.y, 230);
-            this._spawnEnemyBullet(e.x, e.y + 12, Math.cos(ang) * 230, Math.sin(ang) * 230, '#22d3ee', 5);
+            this._spawnEnemyBullet(e.x, e.y + 12, Math.cos(ang) * 230, Math.sin(ang) * 230, '#e879f9', 5);
             e.fireTimer = 2.3 * this._fireGap();
           }
         } else if (e.type === 'bomber') {
@@ -2284,7 +2299,7 @@
             this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(a) * 200, Math.sin(a) * 200, def.bullet, 5.5);
             if (e.enraged && e.bossKind === 'mother') {
               const b = -e.spin * 1.1 + (k / arms) * Math.PI * 2;
-              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(b) * 150, Math.sin(b) * 150, def.accent, 5);
+              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(b) * 150, Math.sin(b) * 150, def.bulletAlt, 5);
             }
           }
         }
@@ -2364,7 +2379,7 @@
           for (const side of [-70, 70]) {
             for (let s = 0; s < 6; s++) {
               const a = Math.PI * 0.5 + (side < 0 ? -1 : 1) * (0.15 + s * 0.12);
-              this._spawnEnemyBullet(e.x + side, e.y + 10, Math.cos(a) * 240, Math.sin(a) * 240, def.accent, 5.5);
+              this._spawnEnemyBullet(e.x + side, e.y + 10, Math.cos(a) * 240, Math.sin(a) * 240, def.bulletAlt, 5.5);
             }
           }
           e.fireTimer = 1.0 * rate;
@@ -2392,7 +2407,7 @@
             for (let k = 0; k < n; k++) {
               const a = (k / n) * Math.PI * 2 + ring * (Math.PI / n);
               const spd = 170 + ring * 60;
-              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(a) * spd, Math.sin(a) * spd, ring ? def.accent : def.bullet, 6);
+              this._spawnEnemyBullet(e.x, e.y + 10, Math.cos(a) * spd, Math.sin(a) * spd, ring ? def.bulletAlt : def.bullet, 6);
             }
           }
           e.fireTimer = 1.3 * rate;
@@ -2857,6 +2872,17 @@
 
     // ===================== RENDERING =====================
 
+    // Scenery calm-down for the current phase, eased so take-off fades the sky back instead of snapping
+    _calmFactors(dt = 0) {
+      const target = this.phase === 'title' ? BG_CALM_TITLE : (BG_CALM[this.rig.bgDim] || BG_CALM.normal);
+      const cur = this._calm || (this._calm = { ...target });
+      if (dt > 0) {
+        const k = 1 - Math.exp(-dt * 2.2); // ~1s ease
+        for (const key of ['veil', 'cloud', 'sun', 'lines']) cur[key] = lerp(cur[key], target[key], k);
+      }
+      return cur;
+    }
+
     render() {
       const ctx = this.ctx;
       const W = this.width;
@@ -2888,41 +2914,68 @@
       }
       ctx.fillStyle = skyGrad;
       ctx.fillRect(-30, -30, W + 60, H + 60);
-      this._renderSkyAtmosphere(ctx, W, H, skyMode);
+      const calm = this._calmFactors();
+      this._renderSkyAtmosphere(ctx, W, H, skyMode, calm);
 
       const px = this._playerWorldX();
       const py = this._playerWorldY();
       const anchorX = this.rig.mode === 'tabletop' ? W * 0.5 : this.player.screenX;
       const anchorY = this.rig.mode === 'tabletop' ? H * this.rig.anchorY : this.player.screenY;
 
-      // 2. Camera-Rotated World Space
+      // 2. Scenery (background only), eased from the bright title look to the calmer combat look
       ctx.save();
       if (this.rig.mode === 'tabletop') {
         ctx.translate(anchorX, anchorY);
         ctx.rotate(this.player.cameraRoll);
         ctx.translate(-px, -py);
-        this._renderParallaxWorld(ctx, px, py, W, H, skyMode);
+        this._renderParallaxWorld(ctx, px, py, W, H, skyMode, calm);
       } else {
         // Arcade: the plane moves on a fixed screen, so scroll the scenery with the voyage distance instead
         const camX = W * 0.5 + (this.player.screenX - W * 0.5) * 0.18;
         const camY = this.player.worldY;
-        ctx.save();
         ctx.translate(W * 0.5 - camX, H * 0.5 - camY);
-        this._renderParallaxWorld(ctx, camX, camY, W, H, skyMode);
-        ctx.restore();
+        this._renderParallaxWorld(ctx, camX, camY, W, H, skyMode, calm);
       }
+      ctx.restore();
+      if (calm.veil > 0.005) {
+        ctx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
+        ctx.fillRect(-30, -30, W + 60, H + 60);
+      }
+
+      const applyCam = () => {
+        if (this.rig.mode === 'tabletop') {
+          ctx.translate(anchorX, anchorY);
+          ctx.rotate(this.player.cameraRoll);
+          ctx.translate(-px, -py);
+        }
+      };
+
+      // 3. Mid layer: pickups, enemies, explosions, then our own shots (explosions never hide bullets)
       if (this.phase !== 'title') {
+        ctx.save();
+        applyCam();
         if (this.phase === 'playing') this._renderHazards(ctx, py, H);
         this._renderPowerups(ctx);
         this._renderEnemies(ctx, py);
-        this._renderBullets(ctx);
-        this._renderRailBeam(ctx, px, py, H);
         this._renderParticlesAndWaves(ctx);
+        this._renderPlayerBullets(ctx);
+        this._renderRailBeam(ctx, px, py, H);
+        ctx.restore();
       }
-      ctx.restore();
 
-      // 3. Player Craft / Tabletop Helipad Layer (visible on Title, Playing, or whenever Calibrating!)
+      // 4. Player Craft / Tabletop Helipad Layer (visible on Title, Playing, or whenever Calibrating!)
       if (this.phase !== 'gameover' || this.calibDrawerOpen) {
+        // Soft dark pocket behind the craft: bright clouds can never swallow its outline
+        if (this.phase === 'playing' && calm.veil > 0) {
+          const ax = anchorX;
+          const ay = anchorY;
+          const rr = this.rig.mode === 'tabletop' ? Math.max(this.rig.width, this.rig.length) * 0.95 : 70;
+          const pocket = ctx.createRadialGradient(ax, ay, rr * 0.2, ax, ay, rr);
+          pocket.addColorStop(0, `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${(0.12 + calm.veil * 0.4).toFixed(3)})`);
+          pocket.addColorStop(1, `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, 0)`);
+          ctx.fillStyle = pocket;
+          ctx.fillRect(ax - rr, ay - rr, rr * 2, rr * 2);
+        }
         if (this.rig.mode === 'tabletop') {
           this._renderTabletopRig(ctx, W * 0.5, H * this.rig.anchorY);
         } else {
@@ -2930,17 +2983,27 @@
         }
       }
 
-      // 4. Foreground Wind Streaks
+      // Foreground gust streaks stay below the danger layer
       this._renderForegroundWind(ctx, W, H);
 
-      // 5. Screen Flash, storm lightning & low-HP vignette
+      // 5. Top layer: enemy bullets above everything (craft, flames, explosions), then floating text
+      if (this.phase !== 'title') {
+        ctx.save();
+        applyCam();
+        this._renderEnemyBullets(ctx);
+        this._renderFloatingTexts(ctx);
+        ctx.restore();
+      }
+
+      // 6. Screen flash & storm lightning: softened in flight so a white-out never hides incoming fire
+      const flashScale = this.phase === 'playing' ? 0.55 : 1;
       if (this.flashAlpha > 0.01) {
-        ctx.fillStyle = `rgba(255, 250, 235, ${this.flashAlpha.toFixed(3)})`;
+        ctx.fillStyle = `rgba(255, 250, 235, ${(this.flashAlpha * flashScale).toFixed(3)})`;
         ctx.fillRect(0, 0, W, H);
       }
       if (this.lightningFlash > 0.01) {
         const flicker = this.lightningFlash * (0.55 + 0.45 * Math.abs(Math.sin(this.time * 47)));
-        ctx.fillStyle = `rgba(224, 231, 255, ${(flicker * 0.45).toFixed(3)})`;
+        ctx.fillStyle = `rgba(224, 231, 255, ${(flicker * 0.45 * flashScale).toFixed(3)})`;
         ctx.fillRect(0, 0, W, H);
       }
       if (this.phase === 'playing' && this.player.hp <= this.player.maxHp * 0.3 && !this.rig.godMode) {
@@ -2962,9 +3025,12 @@
       ctx.restore();
     }
 
-    _renderSkyAtmosphere(ctx, W, H, skyMode) {
+    _renderSkyAtmosphere(ctx, W, H, skyMode, calm = BG_CALM_TITLE) {
       const p = this.player;
       const t = this.time;
+      ctx.save();
+      // Sun glare and twinkling stars compete with bullets (bright round dots) - tone them down in flight
+      ctx.globalAlpha = skyMode === 'night' ? 1 : calm.sun;
       if (skyMode === 'day') {
         const sx = W * 0.84;
         const sy = H * 0.06;
@@ -3004,13 +3070,15 @@
         const offX = p.worldX * 0.02;
         const offY = p.worldY * 0.015;
         ctx.fillStyle = '#f8fafc';
+        const starA = 0.25 + calm.lines * 0.75;
+        const starS = 0.55 + calm.lines * 0.45;
         for (const st of this._stars) {
           const x = (((st.x * W - offX) % W) + W) % W;
           const y = (((st.y * H - offY) % H) + H) % H;
-          ctx.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + st.tw));
-          ctx.fillRect(x, y, st.s, st.s);
+          ctx.globalAlpha = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + st.tw))) * starA;
+          ctx.fillRect(x, y, st.s * starS, st.s * starS);
         }
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = 0.5 + calm.cloud * 0.5;
         // Aurora ribbons
         const bands = [
           { c: '52, 211, 153', y: 0.12, a: 0.16, f: 0.0016, sp: 0.35 },
@@ -3034,6 +3102,7 @@
           ctx.fill();
         }
       }
+      ctx.restore();
     }
 
     _renderHazards(ctx, py, H) {
@@ -3078,7 +3147,7 @@
       }
     }
 
-    _renderParallaxWorld(ctx, camX, camY, W, H, skyMode) {
+    _renderParallaxWorld(ctx, camX, camY, W, H, skyMode, calm = BG_CALM_TITLE) {
       const pad = Math.hypot(W, H) * 0.72;
       const p0 = 0.38;
       const cell = 220;
@@ -3094,6 +3163,7 @@
         ? 'rgba(255, 255, 255, 0.16)'
         : (skyMode === 'sunset' ? 'rgba(254, 215, 170, 0.14)' : 'rgba(56, 189, 248, 0.08)');
       ctx.lineWidth = 1;
+      ctx.globalAlpha = calm.lines;
       ctx.beginPath();
       for (let gx = startGX; gx <= endGX; gx++) {
         const wx = gx * cell + effX0;
@@ -3107,7 +3177,8 @@
       }
       ctx.stroke();
 
-      // Procedural islands
+      // Procedural islands (saturated green blobs: pushed back even further than clouds)
+      ctx.globalAlpha = calm.cloud * (calm.cloud < 1 ? 0.75 : 1);
       for (let gx = startGX; gx <= endGX; gx++) {
         for (let gy = startGY; gy <= endGY; gy++) {
           const h = hash2D(gx, gy);
@@ -3139,8 +3210,11 @@
         ? 'rgba(255, 255, 255, 0.62)'
         : (skyMode === 'sunset' ? 'rgba(255, 237, 213, 0.38)' : 'rgba(224, 242, 254, 0.15)');
 
+      ctx.globalAlpha = calm.cloud;
       this._renderCloudLayer(ctx, camX, camY, pad, 0.78, 300, c1, 71);
       this._renderCloudLayer(ctx, camX, camY, pad, 1.28, 260, c2, 193);
+      // Speed lines are thin bright vertical strokes - exactly what a player shot looks like - so fade them hardest
+      ctx.globalAlpha = calm.lines;
 
       // Airflow speed lines
       const boostRatio = clamp((this.player.cruiseSpeed - 280) / 300, 0, 1);
@@ -3170,6 +3244,7 @@
         }
       }
       ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     _renderCloudLayer(ctx, camX, camY, pad, factor, cell, fillStyle, seedOffset) {
@@ -3481,9 +3556,12 @@
       ctx.scale(bankScale, 1);
       ctx.rotate(p.bank * 0.14);
 
-      ctx.fillStyle = '#f8fafc';
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 1.5;
+      ctx.fillStyle = '#f1f5f9';
+      ctx.strokeStyle = '#0b1220';
+      ctx.lineWidth = 2.4;
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(56, 189, 248, 0.55)';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
       ctx.moveTo(0, -30);
       ctx.lineTo(32, 12);
@@ -3496,6 +3574,7 @@
       ctx.lineTo(-32, 12);
       ctx.closePath();
       ctx.fill();
+      ctx.shadowBlur = 0;
       ctx.stroke();
 
       ctx.fillStyle = '#ea580c';
@@ -3973,17 +4052,30 @@
       ctx.fill();
     }
 
-    _renderBullets(ctx) {
+    // Our shots: long capsules in the cyan / white / green family (never the enemies' warm colours),
+    // with a thin dark rim so they read on bright clouds, slightly translucent so they never hide enemy fire.
+    _renderPlayerBullets(ctx) {
+      ctx.save();
       for (const b of this.bullets) {
-        ctx.globalAlpha = 0.35;
+        const x = b.x - b.w * 0.5;
+        const y = b.y - b.h * 0.5;
+        ctx.globalAlpha = 0.28;
         ctx.fillStyle = b.color;
-        ctx.fillRect(b.x - b.w * 1.2, b.y - b.h * 0.6, b.w * 2.4, b.h * 1.2);
-        ctx.globalAlpha = 1;
-        ctx.fillRect(b.x - b.w * 0.5, b.y - b.h * 0.5, b.w, b.h);
-        ctx.fillStyle = '#f0f9ff';
-        ctx.fillRect(b.x - b.w * 0.18, b.y - b.h * 0.42, b.w * 0.36, b.h * 0.7);
+        ctx.fillRect(b.x - b.w * 1.25, b.y - b.h * 0.62, b.w * 2.5, b.h * 1.24);
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = '#0b1a33';
+        ctx.fillRect(x - 1, y - 1, b.w + 2, b.h + 2);
+        ctx.globalAlpha = 0.86;
+        ctx.fillStyle = b.color;
+        ctx.fillRect(x, y, b.w, b.h);
+        ctx.fillStyle = '#f8fdff';
+        ctx.fillRect(b.x - b.w * 0.2, y + b.h * 0.08, b.w * 0.4, b.h * 0.7);
       }
+      ctx.restore();
+    }
 
+    // Enemy fire is the top layer: drawn above the craft, flames, explosions and wind.
+    _renderEnemyBullets(ctx) {
       for (const eb of this.enemyBullets) {
         const spr = this._bulletSprite(eb.color, eb.r);
         ctx.drawImage(spr.canvas, eb.x - spr.half, eb.y - spr.half, spr.half * 2, spr.half * 2);
@@ -4004,13 +4096,19 @@
       const g = c.getContext('2d');
       g.scale(scale, scale);
       g.translate(half, half);
-      g.globalAlpha = 0.28;
+      // Classic danmaku read: coloured glow, dark rim, coloured body, white-hot core.
+      // The rim separates it from bright sky / clouds, the core and glow from dark sky.
+      g.globalAlpha = 0.3;
       g.fillStyle = color;
       g.beginPath(); g.arc(0, 0, r * 1.8, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = 0.9;
+      g.fillStyle = '#0b1220';
+      g.beginPath(); g.arc(0, 0, r + 1.6, 0, Math.PI * 2); g.fill();
       g.globalAlpha = 1;
+      g.fillStyle = color;
       g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
       g.fillStyle = '#ffffff';
-      g.beginPath(); g.arc(0, 0, r * 0.45, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(0, 0, r * 0.5, 0, Math.PI * 2); g.fill();
       spr = { canvas: c, half };
       if (this._spriteCache.size > 64) this._spriteCache.clear();
       this._spriteCache.set(key, spr);
@@ -4158,7 +4256,9 @@
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+    }
 
+    _renderFloatingTexts(ctx) {
       if (!this.rig.pureCamera) {
         ctx.textAlign = 'center';
         for (const ft of this.floatingTexts) {
@@ -4183,7 +4283,7 @@
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2.6;
       for (const ws of this.windStreaks) {
-        ctx.globalAlpha = clamp((ws.a || 0.78) * Math.min(1, ws.life * 3), 0, 1);
+        ctx.globalAlpha = clamp((ws.a || 0.78) * 0.6 * Math.min(1, ws.life * 3), 0, 1);
         ctx.beginPath();
         ctx.moveTo(ws.ox, ws.oy);
         ctx.lineTo(ws.ox, ws.oy + ws.len);

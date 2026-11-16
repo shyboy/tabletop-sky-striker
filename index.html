@@ -1532,6 +1532,7 @@
             <span id="mode-btn-label">模式：实体压屏</span>
           </button>
           <button type="button" id="pc-sky" class="quick-btn">背景：随剧情</button>
+          <button type="button" id="pc-dim" class="quick-btn" title="飞行中把背景压暗，让战机和子弹更醒目">背景亮度：标准</button>
           <button type="button" id="pc-mute" class="quick-btn">音效：开</button>
           <button type="button" id="btn-pure-camera" class="quick-btn" title="隐藏全部界面，方便拍视频（H 键恢复）">📷 实拍纯净</button>
           <button type="button" id="btn-pause-setup" class="quick-btn">🎯 校准底座</button>
@@ -1658,7 +1659,7 @@
 
         <section class="help-sec">
           <h3>受伤与 Boss 弱点</h3>
-          <p>只有机身中央的<strong>红白判定点</strong>碰到子弹才算受伤，擦过机身没事。灰雾封锁舰：吹顺风吹散护甲再打；风暴铁幕舰：顺风能把闪电吹偏；深空母舰：护航机出舱时吹气，把它们倒吹回机库。磁轨炮拉满后立刻松手＝<strong>完美蓄力</strong>，专克狂暴核心。</p>
+          <p>只有机身中央的<strong>红白判定点</strong>碰到子弹才算受伤，擦过机身没事。<strong>带黑边、白芯的圆弹是敌人的</strong>，青白色长条是你自己的；看不清时可在暂停菜单把「背景亮度」调暗。灰雾封锁舰：吹顺风吹散护甲再打；风暴铁幕舰：顺风能把闪电吹偏；深空母舰：护航机出舱时吹气，把它们倒吹回机库。磁轨炮拉满后立刻松手＝<strong>完美蓄力</strong>，专克狂暴核心。</p>
         </section>
 
         <div class="action-stack">
@@ -1902,6 +1903,8 @@
         night: '背景：深空'
       };
       const SKY_ORDER = ['auto', 'day', 'sunset', 'night'];
+      const DIM_LABELS = { normal: '标准', dark: '压暗', max: '很暗' };
+      const DIM_ORDER = ['normal', 'dark', 'max'];
 
       // Declared before the engine exists: its constructor already triggers a UI sync
       const TOY_DESC = {
@@ -2049,6 +2052,7 @@
           st.mode === 'tabletop' ? '模式：实体压屏' : '模式：纯屏街机';
         btnSkyTheme.textContent = SKY_LABELS[st.skyTheme] || '背景：随剧情';
         document.getElementById('pc-sky').textContent = btnSkyTheme.textContent;
+        document.getElementById('pc-dim').textContent = `背景亮度：${DIM_LABELS[st.bgDim] || '标准'}`;
         lastState = st;
         renderCoach(lastCoach);
         syncDock();
@@ -2537,6 +2541,16 @@
       btnMute.addEventListener('click', toggleMute);
       document.getElementById('pc-mute').addEventListener('click', toggleMute);
       document.getElementById('pc-sky').addEventListener('click', () => btnSkyTheme.click());
+      document.getElementById('pc-dim').addEventListener('click', () => {
+        sfx.uiClick();
+        const next = DIM_ORDER[(DIM_ORDER.indexOf(engine.rig.bgDim) + 1) % DIM_ORDER.length];
+        engine.updateRig({ bgDim: next }, false);
+        try { localStorage.setItem('skyStriker.bgDim', next); } catch (e) { /* ignore */ }
+      });
+      try {
+        const savedDim = localStorage.getItem('skyStriker.bgDim');
+        if (savedDim) engine.updateRig({ bgDim: savedDim }, false);
+      } catch (e) { /* storage blocked */ }
       document.getElementById('pc-pair').addEventListener('click', () => openSetupDialog('pair'));
       document.getElementById('pc-skip-tutorial').addEventListener('click', () => {
         sfx.uiClick();
