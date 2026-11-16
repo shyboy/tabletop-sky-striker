@@ -456,6 +456,54 @@
       color: #cbd5e1;
     }
 
+    .toy-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+    }
+
+    .toy-chip {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+      color: #e2e8f0;
+      border-radius: 999px;
+      padding: 0.3rem 0.75rem;
+      font: 600 0.78rem/1.2 system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+    }
+
+    .toy-chip.active {
+      border-color: #34d399;
+      background: rgba(52, 211, 153, 0.16);
+      color: #a7f3d0;
+    }
+
+    .toy-chip:focus-visible,
+    .toy-name input:focus-visible {
+      outline: 2px solid #34d399;
+      outline-offset: 2px;
+    }
+
+    .toy-name {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .toy-name input {
+      inline-size: 8.5rem;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+      color: #f8fafc;
+      border-radius: 999px;
+      padding: 0.3rem 0.7rem;
+      font: 600 0.78rem/1.2 system-ui, -apple-system, sans-serif;
+    }
+
     .diff-chip {
       appearance: none;
       border: 1px solid rgba(148, 163, 184, 0.3);
@@ -742,6 +790,43 @@
       justify-content: center;
     }
 
+    .crew-box {
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      border-radius: 0.7rem;
+      padding: 0.55rem 0.7rem;
+      background: rgba(6, 78, 59, 0.18);
+    }
+
+    .crew-box summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.82rem;
+      color: #a7f3d0;
+    }
+
+    .crew-qr-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+
+    #crew-qr-box {
+      inline-size: 112px;
+      aspect-ratio: 1 / 1;
+      background: #ffffff;
+      border-radius: 0.5rem;
+      padding: 5px;
+      flex: none;
+    }
+
+    #crew-qr-box svg {
+      inline-size: 100%;
+      block-size: 100%;
+      display: block;
+    }
+
     #qr-box svg {
       inline-size: 100%;
       block-size: 100%;
@@ -948,6 +1033,16 @@
         </button>
       </div>
 
+      <div class="toy-row" role="group" aria-label="选择玩具类型">
+        <span>玩具</span>
+        <button type="button" class="toy-chip" data-toy="jet" data-w="92" data-l="122" title="速度快、射速高、判定小，但机体较薄">✈️ 飞机 · 灵巧</button>
+        <button type="button" class="toy-chip" data-toy="car" data-w="74" data-l="118" title="机体厚、子弹重，撞上小型敌机会直接撞飞">🚗 小车 · 坦克</button>
+        <button type="button" class="toy-chip" data-toy="orb" data-w="68" data-l="68" title="自带环绕护卫球拦截子弹，顺风充能更快">🧿 瓶盖 · 守护</button>
+        <label class="toy-name">它叫
+          <input type="text" id="toy-name-input" maxlength="8" placeholder="给它起个名字" autocomplete="off">
+        </label>
+      </div>
+
       <div class="difficulty-row" role="group" aria-label="选择难度">
         <span>难度</span>
         <button type="button" class="diff-chip" data-difficulty="easy">🧸 轻松 · 小朋友</button>
@@ -1093,6 +1188,7 @@
 
         <div class="action-stack">
           <button type="button" id="btn-relaunch" class="btn-block primary">↻ 再次点火升空 (Enter / R)</button>
+          <button type="button" id="btn-flight-card" class="btn-block">📸 生成航程纪念卡</button>
           <button type="button" id="btn-go-title" class="btn-block">⏹ 返回桌面停机坪（主界面）</button>
         </div>
       </div>
@@ -1138,10 +1234,10 @@
         <div class="field-row">
           <span class="field-label">一键实物预设（把真玩具放进金色虚线框）</span>
           <div class="seg-row">
-            <button type="button" class="seg-btn preset-btn" data-shape="car" data-w="74" data-l="118">🚗 合金小车</button>
-            <button type="button" class="seg-btn preset-btn active" data-shape="jet" data-w="92" data-l="122">✈️ 玩具战机</button>
-            <button type="button" class="seg-btn preset-btn" data-shape="jet" data-w="88" data-l="152">📄 折纸飞机</button>
-            <button type="button" class="seg-btn preset-btn" data-shape="orb" data-w="68" data-l="68">🧴 瓶盖/橡皮</button>
+            <button type="button" class="seg-btn preset-btn" data-shape="car" data-w="74" data-l="118">🚗 合金小车 · 坦克</button>
+            <button type="button" class="seg-btn preset-btn active" data-shape="jet" data-w="92" data-l="122">✈️ 玩具战机 · 灵巧</button>
+            <button type="button" class="seg-btn preset-btn" data-shape="jet" data-w="88" data-l="152">📄 折纸飞机 · 灵巧</button>
+            <button type="button" class="seg-btn preset-btn" data-shape="orb" data-w="68" data-l="68">🧴 瓶盖/橡皮 · 守护</button>
           </div>
         </div>
 
@@ -1167,6 +1263,15 @@
             <strong id="val-anchor">75%</strong>
           </label>
           <input type="range" id="rng-anchor" class="calib-slider" min="55" max="85" value="75">
+        </div>
+
+        <div class="field-row">
+          <span class="field-label">受击判定大小（只有实物中央的红白判定点碰到子弹才会受伤）</span>
+          <div class="seg-row" role="group" aria-label="受击判定大小">
+            <button type="button" class="seg-btn hit-btn" data-hit="small">小 · 高手</button>
+            <button type="button" class="seg-btn hit-btn active" data-hit="normal">标准</button>
+            <button type="button" class="seg-btn hit-btn" data-hit="large">大 · 更直观</button>
+          </div>
         </div>
 
         <label class="check-label">
@@ -1209,6 +1314,19 @@
           <button type="button" id="btn-open-sim" class="close-btn" title="在本机旁侧弹出手机座舱窗口进行双屏体验">同机副屏</button>
         </div>
 
+        <details class="crew-box" id="crew-box">
+          <summary>👨‍👩‍👧 家长当「地勤」：用第二台手机扫这里</summary>
+          <p class="hint-note">孩子用第一台手机飞，你在第二台手机上投护盾、远程维修、空投补给，点雷达标记敌机让僚机集火，还能给孩子发加油表情。</p>
+          <div class="crew-qr-row">
+            <div id="crew-qr-box" aria-label="地勤二维码"></div>
+            <div class="url-row" style="flex:1;min-inline-size:0;">
+              <input type="text" id="crew-url-input" class="url-input" readonly aria-label="地勤链接">
+              <button type="button" id="btn-copy-crew" class="close-btn">复制</button>
+              <button type="button" id="btn-open-crew" class="close-btn">同机副屏</button>
+            </div>
+          </div>
+        </details>
+
         <div class="kbd-box">
           <strong>蓝牙手柄 / 键盘同样即插即玩：</strong><br>
           移动：<kbd>WASD</kbd> / <kbd>方向键</kbd> / 左摇杆 · 暂停：<kbd>P</kbd> / <kbd>Esc</kbd> · 磁轨炮：按住 <kbd>Shift</kbd> 或 <kbd>J</kbd><br>
@@ -1222,6 +1340,7 @@
   <script src="./js/sound-fx.js"></script>
   <script src="./js/link-bridge.js"></script>
   <script src="./js/game-engine.js"></script>
+  <script src="./js/flight-card.js"></script>
   <script>
     (function () {
       'use strict';
@@ -1312,6 +1431,13 @@
       };
       const SKY_ORDER = ['auto', 'day', 'sunset', 'night'];
 
+      // Declared before the engine exists: its constructor already triggers a UI sync
+      const TOY_DESC = {
+        jet: '✈️ 灵巧型：速度快、射速高、判定小，但机体较薄；翻滚冷却更短',
+        car: '🚗 坦克型：机体厚、子弹重；撞上小型敌机会直接把它撞飞',
+        orb: '🧿 守护型：自带环绕护卫球拦截子弹，顺风充能更快'
+      };
+
       function switchInspectorTab(tabName) {
         const isCalib = tabName === 'calib';
         tabBtnCalib.classList.toggle('active', isCalib);
@@ -1376,6 +1502,13 @@
         document.querySelectorAll('[data-mode]').forEach((b) => {
           b.classList.toggle('active', b.dataset.mode === st.mode);
         });
+        document.querySelectorAll('[data-toy]').forEach((b) => {
+          const on = b.dataset.toy === st.shape;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', String(on));
+        });
+        document.querySelectorAll('[data-hit]').forEach((b) => b.classList.toggle('active', b.dataset.hit === st.hitSize));
+        document.querySelectorAll('[data-toy]').forEach((b) => { b.title = TOY_DESC[b.dataset.toy] || ''; });
         document.querySelectorAll('[data-difficulty]').forEach((b) => {
           const on = b.dataset.difficulty === st.difficulty;
           b.classList.toggle('active', on);
@@ -1492,11 +1625,23 @@
         }
       });
 
+      // Battlefield snapshot taken the moment a voyage ends, for the keepsake card
+      let lastPhase = 'title';
+      let endSnapshot = null;
+
       engine = new window.SkyStrikerEngine(canvas, sfx, {
         onTelemetry(telemetry) {
           if (bridge) bridge.send('telemetry', telemetry);
         },
         onStateChange(st) {
+          if (st.phase === 'gameover' && lastPhase !== 'gameover') {
+            try {
+              endSnapshot = window.FlightCard && window.FlightCard.snapshot ? window.FlightCard.snapshot(canvas, 960) : null;
+            } catch (e) {
+              endSnapshot = null;
+            }
+          }
+          lastPhase = st.phase;
           syncUIFromRig(st);
           if (bridge) bridge.send('hostState', st);
         }
@@ -1531,6 +1676,8 @@
             const wantPause = Boolean(payload && payload.paused);
             if (!wantPause && dialog.open) dialog.close();
             engine.setManualPause(wantPause);
+          } else if (type === 'crew') {
+            engine.crewAction(payload && payload.action, payload || {});
           } else if (type === 'finishVoyage') {
             if (dialog.open) dialog.close();
             engine.finishVoyage();
@@ -1585,6 +1732,15 @@
         } catch (err) {
           qrBox.textContent = full;
         }
+        const crewUrl = new URL('./crew.html', baseOrigin + location.pathname);
+        crewUrl.searchParams.set('room', roomId);
+        const crewFull = crewUrl.toString();
+        document.getElementById('crew-url-input').value = crewFull;
+        try {
+          document.getElementById('crew-qr-box').innerHTML = window.MiniQR.renderQRSVG(crewFull, { margin: 2 });
+        } catch (err) {
+          document.getElementById('crew-qr-box').textContent = crewFull;
+        }
       }
 
       updateQRForBase(location.origin);
@@ -1619,6 +1775,18 @@
         setTimeout(() => { btn.textContent = '复制'; }, 1200);
       });
 
+      document.getElementById('btn-copy-crew').addEventListener('click', (ev) => {
+        navigator.clipboard?.writeText(document.getElementById('crew-url-input').value);
+        ev.currentTarget.textContent = '已复制';
+        const btn = ev.currentTarget;
+        setTimeout(() => { btn.textContent = '复制'; }, 1200);
+      });
+      document.getElementById('btn-open-crew').addEventListener('click', () => {
+        const u = new URL('./crew.html', location.href);
+        u.searchParams.set('room', roomId);
+        window.open(u.toString(), 'SkyStrikerCrew', 'width=410,height=840');
+      });
+
       document.getElementById('btn-open-sim').addEventListener('click', () => {
         const simUrl = new URL('./controller.html', location.href);
         simUrl.searchParams.set('room', roomId);
@@ -1646,6 +1814,40 @@
       btnStartMission.addEventListener('click', () => {
         sfx.unlock();
         engine.startMission();
+      });
+
+      const btnFlightCard = document.getElementById('btn-flight-card');
+      btnFlightCard.hidden = !window.FlightCard;
+      btnFlightCard.addEventListener('click', () => {
+        if (!window.FlightCard) return;
+        sfx.unlock();
+        sfx.uiClick();
+        const st = engine.getPublicState();
+        const run = st.lastRun || {};
+        const cardCanvas = window.FlightCard.render({
+          toyName: st.toyLabel,
+          toyShape: st.shape,
+          difficulty: st.difficulty,
+          godMode: st.godMode,
+          score: st.score,
+          rank: run.rank,
+          newRecord: run.newRecord,
+          bestScore: st.best && st.best.score,
+          distanceKm: st.distanceKm,
+          wave: st.wave,
+          storyCleared: st.storyCleared,
+          loop: st.loop,
+          kills: st.kills,
+          maxCombo: st.maxCombo,
+          medals: st.medals,
+          gustUsedCount: st.gustUsedCount,
+          hitsTaken: st.hitsTaken,
+          bossKills: st.bossKills,
+          crewAssists: st.crewAssists,
+          epilogue: gameoverEpilogue.textContent,
+          snapshot: endSnapshot || undefined
+        });
+        window.FlightCard.openPreview(cardCanvas, {});
       });
 
       btnRelaunch.addEventListener('click', () => {
@@ -1743,6 +1945,41 @@
         });
       });
 
+      // Toy personality + name + hit size (remembered per browser)
+      const toyNameInput = document.getElementById('toy-name-input');
+      try {
+        const saved = JSON.parse(localStorage.getItem('skyStriker.toy') || 'null');
+        if (saved) engine.updateRig({ shape: saved.shape, toyName: saved.name || '', hitSize: saved.hitSize, width: saved.w, length: saved.l }, false);
+      } catch (e) { /* storage blocked */ }
+      toyNameInput.value = engine.rig.toyName || '';
+      const saveToy = () => {
+        try {
+          localStorage.setItem('skyStriker.toy', JSON.stringify({
+            shape: engine.rig.shape, name: engine.rig.toyName, hitSize: engine.rig.hitSize, w: engine.rig.width, l: engine.rig.length
+          }));
+        } catch (e) { /* ignore */ }
+      };
+      document.querySelectorAll('[data-toy]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          sfx.unlock();
+          sfx.uiClick();
+          engine.updateRig({ shape: btn.dataset.toy, width: Number(btn.dataset.w), length: Number(btn.dataset.l) }, true);
+          saveToy();
+        });
+      });
+      toyNameInput.addEventListener('input', () => {
+        engine.updateRig({ toyName: toyNameInput.value }, false);
+        saveToy();
+      });
+      toyNameInput.addEventListener('keydown', (ev) => ev.stopPropagation()); // typing a name must not launch the game
+      document.querySelectorAll('[data-hit]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          sfx.uiClick();
+          engine.updateRig({ hitSize: btn.dataset.hit }, true);
+          saveToy();
+        });
+      });
+
       // Difficulty choice is remembered per browser
       try {
         const savedTier = localStorage.getItem('skyStriker.difficulty');
@@ -1767,6 +2004,7 @@
             width: Number(btn.dataset.w),
             length: Number(btn.dataset.l)
           }, true);
+          saveToy();
         });
       });
 

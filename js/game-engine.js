@@ -50,6 +50,24 @@
     [['scout', 24], ['gunship', 14], ['lancer', 14], ['weaver', 18], ['bomber', 12], ['sentinel', 12], ['mine', 6]]
   ];
 
+  // Toy personality: what sits on the tablet changes how it flies
+  const TOY_TRAITS = {
+    jet: {
+      label: '灵巧型', icon: '✈️', maxHp: 90, lateral: 1.15, fireRate: 0.85, dmg: 1, core: 9, rollCd: 1.6, gustCd: 1,
+      desc: '速度快、射速高、判定小，但机体较薄；翻滚冷却更短'
+    },
+    car: {
+      label: '坦克型', icon: '🚗', maxHp: 140, lateral: 0.85, fireRate: 1.12, dmg: 1.35, core: 13, rollCd: 2.2, gustCd: 1, bumper: true,
+      desc: '机体厚、子弹重；撞上小型敌机会直接把它撞飞'
+    },
+    orb: {
+      label: '守护型', icon: '🧿', maxHp: 100, lateral: 1, fireRate: 1, dmg: 1, core: 11, rollCd: 2.2, gustCd: 0.75, satellite: true,
+      desc: '自带环绕护卫球拦截子弹，顺风充能更快'
+    }
+  };
+  const HIT_SIZE = { small: 0.75, normal: 1, large: 1.5 };
+  const CREW_COOLDOWNS = { shield: 22, heal: 18, supply: 28, mark: 3, cheer: 1.2 };
+
   // Difficulty tiers (亲子护航 invincibility is a separate toggle on top of these)
   const DIFFICULTY = {
     easy: { label: '轻松', dmg: 0.35, bulletSpeed: 0.7, spawn: 1.5, regen: 1.2, startShield: 1 },
@@ -103,7 +121,9 @@
         anchorY: 0.75,      // Screen vertical anchor ratio (0.52..0.86)
         pureCamera: false,  // Hide all HUD for clean video shooting
         godMode: false,     // Kid-friendly invincible escort mode
-        difficulty: 'normal' // 'easy' | 'normal' | 'ace'
+        difficulty: 'normal', // 'easy' | 'normal' | 'ace'
+        hitSize: 'normal',    // bullet hit-core size: 'small' | 'normal' | 'large'
+        toyName: ''           // the kid's name for the toy, shown on banners and the keepsake card
       };
 
       this.calibHighlightTimer = 0;
@@ -169,6 +189,10 @@
       this.victoryHold = false;
       this.victoryHoldTimer = 0;
       this.warnThrottle = 0;
+      this.crewAssists = 0;
+      this.crewCd = { shield: 0, heal: 0, supply: 0, mark: 0, cheer: 0 };
+      this.crewOnline = false;
+      this.marks = [];          // radar pings from the ground crew (world coords)
 
       this.player = {
         worldX: 0,
@@ -267,8 +291,13 @@
       this.gameOver = false;
       this.manualPaused = false;
       this.player.shield = this.tier.startShield || 0;
+      this._applyToyTraits(true);
       this.calibHighlightTimer = 3.2;
       this._announceChapter(1);
+      this.floatingTexts.push({
+        x: this._playerWorldX(), y: this._playerWorldY() - 110,
+        text: `${this.traits.icon} ${this.toyLabel}（${this.traits.label}）起飞！`, color: '#fde68a', life: 2.2, big: true
+      });
       this.sfx.powerup();
       this.onStateChange(this.getPublicState());
     }
@@ -365,6 +394,10 @@
       if (typeof patch.pureCamera === 'boolean') this.rig.pureCamera = patch.pureCamera;
       if (typeof patch.godMode === 'boolean') this.rig.godMode = patch.godMode;
       if (patch.difficulty && DIFFICULTY[patch.difficulty]) this.rig.difficulty = patch.difficulty;
+      if (patch.hitSize && HIT_SIZE[patch.hitSize]) this.rig.hitSize = patch.hitSize;
+      if (typeof patch.toyName === 'string') this.rig.toyName = patch.toyName.trim().slice(0, 8);
+      // A new toy type before take-off changes the hull right away (mid-flight it keeps the current HP ratio)
+      if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
       if (prevMode !== this.rig.mode) {
         // Enemy shots bake the camera speed into their velocity, so they would hang or rush after a switch
@@ -423,7 +456,10 @@
         wave: this.wave,
         chapterTitle: ch.title,
         chapterSubtitle: ch.subtitle,
-        hp: Math.ceil(this.player.hp),
+        hp: Math.ceil((this.player.hp / this.player.maxHp) * 100),
+        toyLabel: this.toyLabel,
+        toyTrait: this.traits.label,
+        crewAssists: this.crewAssists,
         nukes: this.player.nukes,
         weaponLv: this.player.weaponLv,
         shield: this.player.shield,
@@ -484,6 +520,70 @@
           this.triggerRailgun(prev);
         }
       }
+    }
+
+    // ===== Ground crew (second phone) support actions =====
+    crewAction(action, payload = {}) {
+      if (action === 'hello') {
+        if (!this.crewOnline) {
+          this.crewOnline = true;
+          this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 120, text: '🎧 地勤已上线！', color: '#a7f3d0', life: 1.6, big: true });
+        }
+        return true;
+      }
+      if (this.phase !== 'playing' || this.isPaused) return false;
+      if (!(action in CREW_COOLDOWNS) || this.crewCd[action] > 0) return false;
+      const p = this.player;
+      const px = this._playerWorldX();
+      const py = this._playerWorldY();
+      const say = (text, color) => this.floatingTexts.push({ x: px, y: py - 78, text, color, life: 1.4, big: true });
+
+      if (action === 'shield') {
+        if (p.shield >= 2) return false;
+        p.shield++;
+        this._sfx('shieldUp');
+        say('🛡 地勤投放护盾！', '#67e8f9');
+      } else if (action === 'heal') {
+        if (p.hp >= p.maxHp) return false;
+        p.hp = Math.min(p.maxHp, p.hp + 25);
+        this.sfx.powerup();
+        say('🔧 远程维修 +25', '#86efac');
+      } else if (action === 'supply') {
+        const kinds = ['weapon', 'heal', 'shield', 'drone', 'nuke'];
+        const ahead = this.rig.mode === 'tabletop' ? this.height * 0.4 : this.height * 0.35;
+        this._spawnPowerup(px + (Math.random() - 0.5) * 140, py - ahead, kinds[Math.floor(Math.random() * kinds.length)]);
+        this._spawnPowerup(px + (Math.random() - 0.5) * 140, py - ahead - 30, 'medal');
+        say('📦 空投补给到达！', '#fde68a');
+      } else if (action === 'mark') {
+        const nx = clamp(Number(payload.nx) || 0, -1, 1);
+        const ny = clamp(Number(payload.ny) || 0, -1, 1);
+        const mx = px + nx * this.width * 0.6;
+        const my = py + ny * this.height * 0.85;
+        let best = null;
+        let bestD = 240;
+        for (const e of this.enemies) {
+          const d = Math.hypot(e.x - mx, e.y - my) - (e.isBoss ? 60 : 0);
+          if (d < bestD) { bestD = d; best = e; }
+        }
+        this.marks.push({ x: best ? best.x : mx, y: best ? best.y : my, life: 0.8 });
+        if (!best) {
+          this.crewCd.mark = 0.6;
+          return false;
+        }
+        best.marked = 6;
+        this._sfx('mineBeep');
+      } else if (action === 'cheer') {
+        const emojis = ['👍', '❤️', '🔥', '⭐', '💪'];
+        const emoji = emojis.includes(payload.emoji) ? payload.emoji : '👍';
+        this.floatingTexts.push({ x: px + (Math.random() - 0.5) * 60, y: py - 90, text: `${emoji} 加油！`, color: '#fbcfe8', life: 1.5, big: true });
+        this._sfx('medal', 4);
+        this.crewCd.cheer = CREW_COOLDOWNS.cheer;
+        return true;
+      }
+      this.crewCd[action] = CREW_COOLDOWNS[action];
+      this.crewAssists++;
+      this._stateDirty = true;
+      return true;
     }
 
     triggerRailgun(power = 1) {
@@ -631,7 +731,7 @@
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.rollCooldown > 0) return false;
       p.rollTimer = 0.62;
-      p.rollCooldown = 2.2;
+      p.rollCooldown = this.traits.rollCd;
       p.invulnTimer = Math.max(p.invulnTimer, 0.68);
       this.sfx.barrelRoll();
       this._rumbleGamepad(0.35, 140);
@@ -884,6 +984,11 @@
         if (this.comboTimer <= 0) this.combo = 0;
       }
       if (this.warnThrottle > 0) this.warnThrottle -= dt;
+      for (const k in this.crewCd) if (this.crewCd[k] > 0) this.crewCd[k] = Math.max(0, this.crewCd[k] - dt);
+      for (let i = this.marks.length - 1; i >= 0; i--) {
+        this.marks[i].life -= dt;
+        if (this.marks[i].life <= 0) this.marks.splice(i, 1);
+      }
       // Easy tier: the hull slowly self-repairs while not being hit
       if (this.tier.regen && p.invulnTimer <= 0 && p.hp > 0 && p.hp < p.maxHp) {
         p.hp = Math.min(p.maxHp, p.hp + this.tier.regen * dt);
@@ -952,7 +1057,7 @@
       }
 
       // Cockpit low-HP warning + chapter ambience (storm thunder & lightning on the sunset leg)
-      if (p.hp <= 30 && !this.rig.godMode) {
+      if (p.hp <= p.maxHp * 0.3 && !this.rig.godMode) {
         this.lowHpTimer -= dt;
         if (this.lowHpTimer <= 0) {
           this.lowHpTimer = 1.4;
@@ -969,7 +1074,7 @@
       }
 
       // Movement & Camera Illusion Physics
-      const maxLatSpeed = 490;
+      const maxLatSpeed = 490 * this.traits.lateral;
       p.bank = lerp(p.bank, inp.vx, 1 - Math.exp(-dt * 11));
 
       if (this.rig.mode === 'tabletop') {
@@ -991,7 +1096,7 @@
       } else {
         p.cameraRoll = 0;
         p.cruiseSpeed = 280;
-        p.vx = lerp(p.vx, inp.vx * 520, 1 - Math.exp(-dt * 14));
+        p.vx = lerp(p.vx, inp.vx * 520 * this.traits.lateral, 1 - Math.exp(-dt * 14));
         p.vy = lerp(p.vy, inp.vy * 480, 1 - Math.exp(-dt * 14));
         const halfW = 34;
         p.screenX = clamp(p.screenX + p.vx * dt, halfW, this.width - halfW);
@@ -1010,7 +1115,7 @@
       p.fireCooldown -= dt;
       if (inp.firing && inp.railCharge < 0.2 && p.railBeamTimer <= 0 && p.fireCooldown <= 0) {
         this._fireMainGuns(px, py);
-        p.fireCooldown = p.weaponLv >= 4 ? 0.095 : 0.115;
+        p.fireCooldown = (p.weaponLv >= 4 ? 0.095 : 0.115) * this.traits.fireRate;
       }
 
       // Flanking Bit-Drones Auto Fire
@@ -1082,7 +1187,8 @@
 
       const addShot = (ox, vx, dmg, color = '#0284c7', w = 4.5, h = 19) => {
         const brightColor = this.getEffectiveSky() === 'day' ? color : '#38bdf8';
-        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg, color: brightColor, w, h, life: 1.35 });
+        const heavy = this.traits.dmg;
+        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy, color: brightColor, w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
       };
 
       const spreadBase = this.rig.mode === 'tabletop' ? Math.min(26, this.rig.width * 0.24) : 11;
@@ -1113,7 +1219,7 @@
       let target = null;
       let bestDist = 680;
       for (const e of this.enemies) {
-        const d = Math.hypot(e.x - px, e.y - py);
+        const d = Math.hypot(e.x - px, e.y - py) - (e.marked > 0 ? 2000 : 0); // ground-crew marks come first
         if (e.y < py + 40 && d < bestDist) {
           bestDist = d;
           target = e;
@@ -1144,6 +1250,28 @@
       const t = Math.hypot(px - x, py - y) / Math.max(60, speed * this.tier.bulletSpeed);
       const leadX = this.player.vx * t * (this.rig.mode === 'tabletop' ? 0.8 : 0.45);
       return Math.atan2(py - y, px + leadX - x);
+    }
+
+    get traits() {
+      return TOY_TRAITS[this.rig.shape] || TOY_TRAITS.jet;
+    }
+
+    get toyLabel() {
+      return this.rig.toyName || '桌面小飞机';
+    }
+
+    // Radius of the bullet hit core (independent of the toy's physical size)
+    get hitCoreR() {
+      return this.traits.core * (HIT_SIZE[this.rig.hitSize] || 1);
+    }
+
+    _applyToyTraits(refill) {
+      const p = this.player;
+      const t = this.traits;
+      const ratio = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+      p.maxHp = t.maxHp;
+      p.hp = refill ? t.maxHp : Math.max(1, Math.round(t.maxHp * ratio));
+      p.gustMaxCooldown = 6 * t.gustCd;
     }
 
     get tier() {
@@ -1336,6 +1464,7 @@
       if (e.dead) return;
       if (e.bossKind === 'fog' && !(e.unveiled > 0) && dmg < 1e6) dmg *= 0.5;
       if ((e.launchShield > 0 || e.blownBack) && dmg < 1e6 && !this._nuking) return; // fresh hangar escorts: blow them back!
+      if (e.marked > 0) dmg *= 1.5; // ground-crew target mark
       e.hp -= dmg;
       e.hitFlash = 0.08;
 
@@ -1532,6 +1661,7 @@
         if (!e) continue;
         if (e.hitFlash > 0) e.hitFlash -= dt;
         if (e.launchShield > 0) e.launchShield -= dt;
+        if (e.marked > 0) e.marked -= dt;
         e.phase = (e.phase || 0) + dt * 3;
         e.age = (e.age || 0) + dt;
 
@@ -1667,6 +1797,14 @@
         }
 
         if (Math.abs(e.x - px) < e.radius + hitHalfW && Math.abs(e.y - py) < e.radius + hitHalfL) {
+          if (this.traits.bumper && !e.isBoss && e.radius <= 24) {
+            // Tank-type toy (car): small attackers bounce off the bumper and explode
+            this.floatingTexts.push({ x: e.x, y: e.y - 20, text: '撞飞！', color: '#fdba74', life: 0.8 });
+            this.screenShake = Math.max(this.screenShake, 6);
+            this._rumbleGamepad(0.4, 120);
+            this._damageEnemy(e, 9999, i);
+            if (e.dead) continue;
+          }
           const landed = this._hurtPlayer(22);
           if (!e.isBoss) {
             // A real collision destroys the attacker; brushing past while invulnerable only scrapes it
@@ -1903,8 +2041,9 @@
     }
 
     _stepEnemyBullets(dt, px, py) {
-      const coreW = this.rig.mode === 'tabletop' ? this.rig.width * 0.21 : 11;
-      const coreL = this.rig.mode === 'tabletop' ? this.rig.length * 0.21 : 13;
+      // Only a small, visible core takes bullet damage (shmup convention); the rest of the toy can graze
+      const coreR = this.hitCoreR;
+      const sat = this._satellitePos();
       const grazeW = this.rig.mode === 'tabletop' ? this.rig.width * 0.54 : 30;
       const grazeL = this.rig.mode === 'tabletop' ? this.rig.length * 0.54 : 34;
 
@@ -1940,10 +2079,18 @@
           continue;
         }
 
+        if (sat && Math.hypot(b.x - sat.x, b.y - sat.y) < sat.r + b.r) {
+          // Guardian-type toy (orb): the orbiting guard ball eats bullets
+          this.enemyBullets.splice(i, 1);
+          this._spawnExplosion(b.x, b.y, '#c4b5fd', 3, 80);
+          this.score += 10;
+          continue;
+        }
+
         const dx = Math.abs(b.x - px);
         const dy = Math.abs(b.y - py);
 
-        if (dx < coreW + b.r * 0.6 && dy < coreL + b.r * 0.6) {
+        if (Math.hypot(dx, dy) < coreR + b.r * 0.6) {
           this.enemyBullets.splice(i, 1);
           this._hurtPlayer(14);
           continue;
@@ -2233,7 +2380,7 @@
         distanceKm: Number(this.distanceKm.toFixed(1)),
         wave: this.wave,
         chapterTitle: ch.title,
-        hp: Math.ceil(p.hp),
+        hp: Math.ceil((p.hp / p.maxHp) * 100),
         weaponLv: p.weaponLv,
         nukes: p.nukes,
         gustReady: p.gustCooldown <= 0 ? 1 : Number((1 - p.gustCooldown / p.gustMaxCooldown).toFixed(2)),
@@ -2241,6 +2388,8 @@
         bossHp: this.boss ? Number((this.boss.hp / this.boss.maxHp).toFixed(2)) : 0,
         bossName: this.boss ? this.boss.name : '',
         victoryHold: this.victoryHold,
+        crew: Object.fromEntries(Object.keys(CREW_COOLDOWNS).map((k) => [k, Number((1 - this.crewCd[k] / CREW_COOLDOWNS[k]).toFixed(2))])),
+        crewAssists: this.crewAssists,
         shield: p.shield,
         droneCount: p.droneCount,
         combo: this.combo,
@@ -2342,7 +2491,7 @@
         ctx.fillStyle = `rgba(224, 231, 255, ${(flicker * 0.45).toFixed(3)})`;
         ctx.fillRect(0, 0, W, H);
       }
-      if (this.phase === 'playing' && this.player.hp <= 30 && !this.rig.godMode) {
+      if (this.phase === 'playing' && this.player.hp <= this.player.maxHp * 0.3 && !this.rig.godMode) {
         const pulse = 0.28 + 0.18 * Math.sin(this.time * 6);
         const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.35, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.6);
         vg.addColorStop(0, 'rgba(220, 38, 38, 0)');
@@ -2835,7 +2984,9 @@
 
       // 5. Flanking Autonomous Bit-Drones
       this._drawDroneFormation(ctx);
+      this._drawSatellite(ctx);
       this._drawShieldBubble(ctx, Math.max(rw, rl) * 0.5 + 26);
+      this._drawHitCore(ctx);
 
       ctx.restore();
     }
@@ -2908,7 +3059,9 @@
       ctx.restore();
 
       this._drawDroneFormation(ctx);
+      this._drawSatellite(ctx);
       this._drawShieldBubble(ctx, 46);
+      this._drawHitCore(ctx);
 
       const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
       if (this.phase === 'playing' && charge > 0.05) {
@@ -2953,6 +3106,64 @@
         ctx.stroke();
         if (++drawn > 24) break;
       }
+      ctx.restore();
+    }
+
+    // World position of the guardian orb (orb-type toys only), or null
+    _satellitePos() {
+      if (!this.traits.satellite || this.phase === 'title') return null;
+      const R = this.rig.mode === 'tabletop' ? Math.max(this.rig.width, this.rig.length) * 0.5 + 36 : 50;
+      const a = this.time * 2.6;
+      return { x: this._playerWorldX() + Math.cos(a) * R, y: this._playerWorldY() + Math.sin(a) * R, r: 13, a, R };
+    }
+
+    // Glowing bullet hit core (+ guardian orb): shows exactly what counts as a hit
+    _drawHitCore(ctx) {
+      if (this.phase !== 'playing' && !this.calibDrawerOpen) return;
+      const r = this.hitCoreR;
+      const pulse = 0.65 + Math.sin(this.time * 7) * 0.2;
+      ctx.save();
+      ctx.fillStyle = `rgba(248, 250, 252, ${pulse.toFixed(2)})`;
+      ctx.strokeStyle = 'rgba(244, 63, 94, 0.95)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#f43f5e';
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(2.5, r * 0.32), 0, Math.PI * 2);
+      ctx.fill();
+      if (this.calibDrawerOpen) {
+        ctx.font = '700 11px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#fecdd3';
+        ctx.fillText(`受击判定 r=${Math.round(r)}px`, r + 8, 4);
+      }
+      ctx.restore();
+    }
+
+    _drawSatellite(ctx) {
+      const sat = this._satellitePos();
+      if (!sat) return;
+      // Drawn in craft-local screen space (rig layer is not camera-rolled)
+      const x = Math.cos(sat.a) * sat.R;
+      const y = Math.sin(sat.a) * sat.R;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(196, 181, 253, 0.25)';
+      ctx.setLineDash([4, 8]);
+      ctx.beginPath();
+      ctx.arc(0, 0, sat.R, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const g = ctx.createRadialGradient(x, y, 1, x, y, sat.r * 1.6);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.4, '#c4b5fd');
+      g.addColorStop(1, 'rgba(139, 92, 246, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, sat.r * 1.6, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
 
@@ -3038,6 +3249,21 @@
           ctx.lineTo(0, py - e.y + 120);
           ctx.stroke();
           ctx.setLineDash([]);
+        }
+
+        if (e.marked > 0) {
+          // Ground-crew target mark: rotating yellow brackets
+          const R = e.radius + 12 + Math.sin(this.time * 8) * 3;
+          ctx.save();
+          ctx.rotate(this.time * 2);
+          ctx.strokeStyle = `rgba(250, 204, 21, ${Math.min(1, e.marked).toFixed(2)})`;
+          ctx.lineWidth = 3;
+          for (let k = 0; k < 4; k++) {
+            ctx.beginPath();
+            ctx.arc(0, 0, R, k * Math.PI / 2 + 0.2, k * Math.PI / 2 + 1.0);
+            ctx.stroke();
+          }
+          ctx.restore();
         }
 
         if (e.launchShield > 0 || e.blownBack) {
@@ -3461,6 +3687,15 @@
       }
       ctx.globalAlpha = 1;
 
+      for (const mk of this.marks) {
+        const t = 1 - mk.life / 0.8;
+        ctx.strokeStyle = `rgba(250, 204, 21, ${(1 - t).toFixed(2)})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(mk.x, mk.y, 12 + t * 50, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       for (const sw of this.shockwaves) {
         const a = clamp(sw.life / sw.maxLife, 0, 1);
         ctx.strokeStyle = sw.color;
@@ -3630,7 +3865,7 @@
         ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
         ctx.fillRect(sx, 41, barW / segs - 2, 7);
         if (filled > 0) {
-          ctx.fillStyle = p.hp > 60 ? '#38bdf8' : (p.hp > 30 ? '#facc15' : '#ef4444');
+          ctx.fillStyle = frac > 0.6 ? '#38bdf8' : (frac > 0.3 ? '#facc15' : '#ef4444');
           ctx.fillRect(sx, 41, (barW / segs - 2) * clamp(filled, 0, 1), 7);
         }
       }
