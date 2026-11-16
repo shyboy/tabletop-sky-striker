@@ -145,6 +145,7 @@
       this._musicIntensity = -1;
       this._musicPaused = null;
       this.lastRun = null;
+      this.crewOnline = false; // connection-level, survives between voyages
 
       this._initWorldContainers();
       this.stopToTitle();
@@ -191,7 +192,6 @@
       this.warnThrottle = 0;
       this.crewAssists = 0;
       this.crewCd = { shield: 0, heal: 0, supply: 0, mark: 0, cheer: 0 };
-      this.crewOnline = false;
       this.marks = [];          // radar pings from the ground crew (world coords)
 
       this.player = {

@@ -992,6 +992,7 @@
 
     ctx.fillStyle = INK;
     const scoreText = d.hasScore ? fmtInt(d.score) : '—';
+    if (!d.hasScore) ctx.fillStyle = '#c3b99f';
     const size = fitFont(ctx, scoreText, maxW, 112, 40, 900, true);
     ctx.fillText(ellipsize(ctx, scoreText, maxW), tx - 3, y + 142 - (112 - size) * 0.25);
 

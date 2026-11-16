@@ -17,6 +17,7 @@
     'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'
   ];
   const PEER_PREFIX = 'yang-sky-striker-v1-';
+  const TRANSPORT_ORDER = ['同机直连', '局域网高速', 'WebRTC直连']; // fastest first
 
   function randomRoomCode() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -36,6 +37,7 @@
       this.cid = this.role + '-' + Math.random().toString(36).slice(2, 10);
       this._seq = 0;
       this._seenSeq = new Map(); // sender cid -> highest app-message seq delivered
+      this._viaSeen = {}; // transport label -> last packet timestamp
       this._roleSeen = new Map(); // (host only) client role -> last seen timestamp
       this.roomId = (roomId || randomRoomCode()).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'SKY1';
       this.onMessage = onMessage || (() => {});
@@ -123,12 +125,18 @@
 
       const now = performance.now();
       this.lastSeenRemoteAt = now;
-      if (this.isHost) {
-        this._roleSeen.set(packet.from, now);
-        // With several clients the label would flip between their transports; keep the pilot's.
-        if (packet.from === 'controller' || !this.isRoleConnected('controller')) this.transportName = via;
-      } else {
-        this.transportName = via;
+      if (this.isHost) this._roleSeen.set(packet.from, now);
+      // With several clients the label would flip between their transports; show the pilot's.
+      const labelOwner = !this.isHost || packet.from === 'controller' || !this.isRoleConnected('controller');
+      if (labelOwner) {
+        // The same peer is often reachable over two transports at once (same-browser preview:
+        // BroadcastChannel + WebSocket). Report the fastest live one instead of whichever
+        // packet happened to arrive last, so the status label does not flicker.
+        this._viaSeen[via] = now;
+        const rank = TRANSPORT_ORDER.indexOf(via);
+        const curRank = TRANSPORT_ORDER.indexOf(this.transportName);
+        const curAlive = curRank !== -1 && now - (this._viaSeen[this.transportName] || 0) < 3000;
+        if (!curAlive || rank <= curRank) this.transportName = via;
       }
 
       if (packet.type === '__ping') {

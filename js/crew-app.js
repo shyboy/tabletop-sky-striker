@@ -112,6 +112,14 @@
     return DEFAULT_HINT;
   }
 
+  /** Host would refuse these without spending the cooldown, so say why instead of sending. */
+  function pointless(action) {
+    const t = state.telemetry;
+    if (action === 'shield' && t.shield >= 2) return { short: '护盾已满', text: '护盾已经是满的 2 层，先留着' };
+    if (action === 'heal' && t.hp >= 100) return { short: '机体完好', text: '机体完好，受伤了再修' };
+    return null;
+  }
+
   function readiness(action) {
     const now = performance.now();
     if ((state.lockUntil[action] || 0) > now) return 0;
@@ -148,6 +156,12 @@
     if (readiness(action) < 1) {
       vibrate(10);
       flashHint('还在冷却中，按钮充满就能再用');
+      return false;
+    }
+    const full = pointless(action);
+    if (full) {
+      vibrate(10);
+      flashHint(full.text);
       return false;
     }
     useAction(action, extra);
@@ -304,12 +318,14 @@
       const r = readiness(action);
       const ready = r >= 1;
       ui.btn.classList.toggle('off', Boolean(reason));
-      ui.btn.classList.toggle('cooling', !reason && !ready);
-      ui.btn.setAttribute('aria-disabled', reason || !ready ? 'true' : 'false');
+      const full = !reason && ready ? pointless(action) : null;
+      ui.btn.classList.toggle('cooling', !reason && (!ready || Boolean(full)));
+      ui.btn.setAttribute('aria-disabled', reason || !ready || full ? 'true' : 'false');
       ui.fill.style.transform = `scaleY(${reason ? 1 : r})`;
       let sub;
       if (reason) sub = reason.short;
       else if (!ready) sub = `冷却 ${Math.round(r * 100)}%`;
+      else if (full) sub = full.short;
       else sub = action === 'mark' ? '点雷达' : '就绪';
       setText(ui.sub, sub);
     }

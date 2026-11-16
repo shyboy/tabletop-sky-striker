@@ -1641,6 +1641,10 @@
               endSnapshot = null;
             }
           }
+          // A new flight started from the phone / gamepad while the keepsake card is open: put the card away
+          if (st.phase === 'playing' && lastPhase !== 'playing' && window.FlightCard && window.FlightCard.isOpen && window.FlightCard.isOpen()) {
+            window.FlightCard.close();
+          }
           lastPhase = st.phase;
           syncUIFromRig(st);
           if (bridge) bridge.send('hostState', st);
@@ -1695,7 +1699,11 @@
           if (info.connected) {
             dot.classList.add('connected');
             const rtt = info.rttMs ? ` · ${info.rttMs}ms` : '';
-            txt.textContent = `座舱已连 (${info.transport}${rtt})`;
+            const crewTag = info.crewConnected ? ' · 地勤在线' : '';
+            txt.textContent = info.controllerConnected === false && info.crewConnected
+              ? `地勤已连 (${info.transport})`
+              : `座舱已连 (${info.transport}${rtt})${crewTag}`;
+            if (!info.crewConnected) engine.crewOnline = false;
             titleConnPill.textContent = `✅ 手机座舱已就绪 (${info.transport})`;
             titleConnPill.style.color = '#4ade80';
             live.textContent = `✅ 手机座舱已连接（通道：${info.transport}${rtt}），可切到左上方「底座实时校准」或直接开飞！`;
