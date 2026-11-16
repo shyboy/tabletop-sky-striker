@@ -612,6 +612,8 @@
     d.hitsTaken = int(s.hitsTaken);
     d.bossKills = int(s.bossKills);
     d.crewAssists = int(s.crewAssists);
+    d.playerLevel = Math.max(1, int(s.playerLevel || 1));
+    d.pickedSkills = Array.isArray(s.pickedSkills) ? s.pickedSkills.slice(0, 6) : [];
     d.dateText = (typeof s.dateText === 'string' && s.dateText.trim()) ? s.dateText.trim() : todayText();
     d.snapshot = s.snapshot || null;
     d.epilogue = (typeof s.epilogue === 'string' && s.epilogue.trim()) ? s.epilogue.trim() : defaultEpilogue(d);
@@ -1112,8 +1114,20 @@
 
     // tags
     const tags = [];
+    if (d.playerLevel > 1) tags.push({ t: '核心 Lv.' + d.playerLevel, c: '#2f7fe0' });
     if (d.difficulty) tags.push({ t: DIFF_LABEL[d.difficulty] + '难度', c: DIFF_COLOR[d.difficulty] });
     if (d.godMode) tags.push({ t: '亲子护航', c: '#e0688f' });
+    if (d.pickedSkills && d.pickedSkills.length > 0) {
+      for (let si = 0; si < Math.min(2, d.pickedSkills.length); si++) {
+        const sk = d.pickedSkills[si];
+        if (sk && sk.name) {
+          tags.push({
+            t: sk.name + (sk.stars > 1 ? '★' + sk.stars : ''),
+            c: sk.rarity === 'epic' ? '#d97706' : (sk.rarity === 'rare' ? '#7c3aed' : '#0891b2')
+          });
+        }
+      }
+    }
     const ph = 36;
     for (let i = 0; i < tags.length; i++) {
       ctx.font = font(700, 20);

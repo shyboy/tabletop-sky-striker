@@ -220,31 +220,59 @@
     /* ===================== TITLE SCREEN OVERLAY ===================== */
     #title-overlay {
       position: fixed;
-      top: max(3.9rem, calc(env(safe-area-inset-top, 0px) + 3.6rem));
+      top: max(3.05rem, calc(env(safe-area-inset-top, 0px) + 2.85rem));
       left: 50%;
       transform: translateX(-50%);
       z-index: 14;
-      inline-size: min(44rem, calc(100dvw - 1.5rem));
-      max-block-size: min(56dvh, 31rem);
+      inline-size: min(47.5rem, calc(100dvw - 1.5rem));
+      max-block-size: min(55dvh, 28rem);
       overflow-y: auto;
-      background: linear-gradient(180deg, rgba(8, 20, 38, 0.84) 0%, rgba(10, 25, 48, 0.76) 100%);
-      border: 1px solid rgba(125, 211, 252, 0.36);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(125, 211, 252, 0.28) transparent;
+      background: linear-gradient(168deg, rgba(8, 22, 44, 0.80) 0%, rgba(6, 16, 34, 0.88) 100%);
+      border: 1px solid rgba(125, 211, 252, 0.34);
       border-radius: 1.25rem;
-      box-shadow: 0 20px 50px rgba(3, 10, 24, 0.42);
+      box-shadow: 0 22px 52px rgba(2, 8, 22, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.16);
       backdrop-filter: blur(12px);
-      padding: clamp(0.95rem, 2dvh, 1.4rem) clamp(1rem, 2.5vw, 1.65rem);
+      padding: clamp(0.8rem, 1.6dvh, 1.1rem) clamp(1rem, 2.2vw, 1.45rem);
       display: flex;
       flex-direction: column;
-      gap: clamp(0.6rem, 1.4dvh, 0.9rem);
+      gap: clamp(0.45rem, 1dvh, 0.65rem);
+    }
+
+    #title-overlay::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    #title-overlay::-webkit-scrollbar-thumb {
+      background: rgba(125, 211, 252, 0.28);
+      border-radius: 999px;
+    }
+
+    #title-overlay::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .title-head-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.45rem 0.75rem;
+    }
+
+    .title-brand-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.16rem;
     }
 
     .story-kicker {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-      font-size: 0.75rem;
+      gap: 0.45rem;
+      font-size: 0.71rem;
       font-weight: 700;
       letter-spacing: 0.06em;
       color: var(--accent-amber);
@@ -252,17 +280,35 @@
     }
 
     .title-heading {
-      font-size: clamp(1.35rem, 1.1rem + 1.2vw, 2rem);
+      font-size: clamp(1.25rem, 1.05rem + 0.95vw, 1.72rem);
       font-weight: 800;
       letter-spacing: 0.02em;
       color: #ffffff;
-      line-height: 1.2;
+      line-height: 1.18;
+    }
+
+    .title-meta-col {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.25rem;
+    }
+
+    #title-conn-pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #fde68a;
+      background: rgba(15, 23, 42, 0.62);
+      border: 1px solid rgba(251, 191, 36, 0.34);
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      white-space: nowrap;
     }
 
     .story-copy {
       margin: 0;
-      font-size: clamp(0.84rem, 0.8rem + 0.22vw, 0.96rem);
-      line-height: 1.62;
+      font-size: clamp(0.8rem, 0.77rem + 0.18vw, 0.9rem);
+      line-height: 1.5;
       color: #e2e8f0;
     }
 
@@ -274,8 +320,8 @@
     .chapter-route {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.4rem;
-      font-size: 0.74rem;
+      gap: 0.35rem;
+      font-size: 0.71rem;
       color: #bae6fd;
     }
 
@@ -283,38 +329,48 @@
       background: rgba(14, 116, 144, 0.28);
       border: 1px solid rgba(56, 189, 248, 0.28);
       border-radius: 999px;
-      padding: 0.18rem 0.62rem;
+      padding: 0.14rem 0.56rem;
+    }
+
+    .title-config-deck {
+      background: rgba(7, 17, 34, 0.52);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 0.9rem;
+      padding: 0.55rem 0.65rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.48rem;
     }
 
     .title-mode-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.48rem;
     }
 
     .mode-card-btn {
       flex: 1;
       min-inline-size: 11rem;
       text-align: left;
-      padding: 0.5rem 0.75rem;
-      border-radius: 0.75rem;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      background: rgba(15, 23, 42, 0.58);
+      padding: 0.42rem 0.68rem;
+      border-radius: 0.72rem;
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      background: rgba(15, 23, 42, 0.62);
       color: #cbd5e1;
       cursor: pointer;
       display: flex;
       flex-direction: column;
-      gap: 0.15rem;
+      gap: 0.1rem;
       transition: border-color 0.15s, background-color 0.15s;
     }
 
     .mode-card-btn strong {
-      font-size: 0.84rem;
+      font-size: 0.82rem;
       color: #f8fafc;
     }
 
     .mode-card-btn span {
-      font-size: 0.73rem;
+      font-size: 0.71rem;
       color: var(--text-dim);
     }
 
@@ -327,33 +383,51 @@
       color: #fde047;
     }
 
-    .cta-row {
+    .title-prefs-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.55rem;
       align-items: center;
-      /* The launch button stays in view even when the briefing has to scroll on small phones */
-      position: sticky;
-      bottom: calc(-1 * clamp(0.95rem, 2dvh, 1.4rem));
-      z-index: 1;
-      margin-inline: calc(-1 * clamp(1rem, 2.5vw, 1.65rem));
-      padding: 0.55rem clamp(1rem, 2.5vw, 1.65rem);
-      background: linear-gradient(180deg, rgba(10, 25, 48, 0) 0%, rgba(10, 25, 48, 0.94) 22%);
+      justify-content: space-between;
+      gap: 0.4rem 0.75rem;
+    }
+
+    .cta-row {
+      display: grid;
+      grid-template-columns: 1.45fr repeat(3, 1fr);
+      gap: 0.5rem;
+      align-items: stretch;
+    }
+
+    @media (max-width: 680px) {
+      .cta-row {
+        grid-template-columns: repeat(3, 1fr);
+      }
+      .cta-launch {
+        grid-column: 1 / -1;
+      }
+      .title-meta-col {
+        align-items: flex-start;
+      }
     }
 
     .cta-launch {
-      flex: 1.4;
-      min-inline-size: 10.5rem;
-      padding: 0.66rem 1.15rem;
-      border-radius: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      min-block-size: 2.6rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.8rem;
       border: 1px solid #fde047;
       background: linear-gradient(135deg, #0284c7 0%, #0369a1 55%, #0f766e 100%);
-      box-shadow: 0 10px 24px rgba(2, 132, 199, 0.4);
+      box-shadow: 0 8px 22px rgba(2, 132, 199, 0.4);
       color: #ffffff;
-      font-size: clamp(0.9rem, 0.85rem + 0.3vw, 1.04rem);
+      font-size: clamp(0.86rem, 0.82rem + 0.22vw, 0.96rem);
       font-weight: 800;
       cursor: pointer;
       letter-spacing: 0.02em;
+      white-space: nowrap;
+      line-height: 1.15;
     }
 
     .cta-launch:hover {
@@ -361,16 +435,21 @@
     }
 
     .cta-secondary {
-      flex: 1;
-      min-inline-size: 8.8rem;
-      padding: 0.64rem 0.9rem;
-      border-radius: 0.85rem;
-      border: 1px solid rgba(56, 189, 248, 0.45);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      min-block-size: 2.6rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.8rem;
+      border: 1px solid rgba(56, 189, 248, 0.42);
       background: rgba(15, 23, 42, 0.76);
       color: #e0f2fe;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 700;
       cursor: pointer;
+      white-space: nowrap;
+      line-height: 1.15;
     }
 
     .cta-secondary:hover {
@@ -381,7 +460,7 @@
     .helipad-guide {
       margin: 0;
       text-align: center;
-      font-size: 0.76rem;
+      font-size: 0.73rem;
       color: #fde047;
       opacity: 0.92;
     }
@@ -465,8 +544,8 @@
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 0.4rem;
-      font-size: 0.78rem;
+      gap: 0.35rem;
+      font-size: 0.75rem;
       color: #cbd5e1;
     }
 
@@ -474,19 +553,20 @@
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 0.4rem;
-      font-size: 0.78rem;
+      gap: 0.35rem;
+      font-size: 0.75rem;
       color: #cbd5e1;
     }
 
     .toy-chip {
       appearance: none;
       border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(15, 23, 42, 0.6);
+      background: rgba(15, 23, 42, 0.65);
       color: #e2e8f0;
       border-radius: 999px;
-      padding: 0.3rem 0.75rem;
-      font: 600 0.78rem/1.2 system-ui, -apple-system, sans-serif;
+      padding: 0.24rem 0.62rem;
+      min-block-size: 30px;
+      font: 600 0.75rem/1.2 system-ui, -apple-system, sans-serif;
       cursor: pointer;
     }
 
@@ -509,23 +589,25 @@
     }
 
     .toy-name input {
-      inline-size: 8.5rem;
+      inline-size: 7.2rem;
       border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(15, 23, 42, 0.6);
+      background: rgba(15, 23, 42, 0.65);
       color: #f8fafc;
       border-radius: 999px;
-      padding: 0.3rem 0.7rem;
-      font: 600 0.78rem/1.2 system-ui, -apple-system, sans-serif;
+      padding: 0.22rem 0.62rem;
+      min-block-size: 30px;
+      font: 600 0.75rem/1.2 system-ui, -apple-system, sans-serif;
     }
 
     .diff-chip {
       appearance: none;
       border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(15, 23, 42, 0.6);
+      background: rgba(15, 23, 42, 0.65);
       color: #e2e8f0;
       border-radius: 999px;
-      padding: 0.3rem 0.75rem;
-      font: 600 0.78rem/1.2 system-ui, -apple-system, sans-serif;
+      padding: 0.24rem 0.62rem;
+      min-block-size: 30px;
+      font: 600 0.75rem/1.2 system-ui, -apple-system, sans-serif;
       cursor: pointer;
     }
 
@@ -542,9 +624,9 @@
 
     .title-best {
       margin: 0;
-      font-size: 0.82rem;
+      font-size: 0.73rem;
       color: #fde68a;
-      text-align: center;
+      text-align: right;
     }
 
     .stats-grid {
@@ -1399,16 +1481,22 @@
     </button>
 
     <!-- 1. Main Title & Story Screen -->
-    <section id="title-overlay" class="themed-scroller" aria-labelledby="main-story-title">
-      <div class="story-kicker">
-        <span>PROJECT BORROWED WIND · 双屏虚实互动飞行</span>
-        <span id="title-conn-pill">等待手机座舱或直接键鼠起飞</span>
+    <section id="title-overlay" aria-labelledby="main-story-title">
+      <div class="title-head-row">
+        <div class="title-brand-group">
+          <div class="story-kicker">
+            <span>PROJECT BORROWED WIND · 双屏虚实互动飞行</span>
+          </div>
+          <h1 id="main-story-title" class="title-heading">借风计划 · 桌面飞机大战</h1>
+        </div>
+        <div class="title-meta-col">
+          <span id="title-conn-pill">等待手机座舱或直接键鼠起飞</span>
+          <p class="title-best" id="title-best" hidden></p>
+        </div>
       </div>
 
-      <h1 id="main-story-title" class="title-heading">借风计划 · 桌面飞机大战</h1>
-
       <p class="story-copy">
-        书桌上的合金小车、折纸飞机和旧橡皮自己没有引擎。今晚把屏幕变成一扇通往云海的天窗——<strong>既然它自己飞不动，那就让整片云层、海岛与晚霞替它往后奔跑。</strong>拿起手机当无线操纵杆，你对着麦克风吹出的每一口气，都是托起它的八级顺风。
+        书桌上的小家伙自己没有引擎，<strong>那就让整片云海、海岛与晚霞替它往后奔跑。</strong>拿起手机当操纵杆，吹出的每一口气都是托起它的八级顺风。
       </p>
 
       <div class="chapter-route" aria-label="三幕航段">
@@ -1417,50 +1505,52 @@
         <span class="route-step">Ⅲ 星海灯塔 · 守住云端天窗</span>
       </div>
 
-      <div class="title-mode-row" role="group" aria-label="选择起飞方式">
-        <button type="button" class="mode-card-btn active" data-mode="tabletop">
-          <strong>🛸 实体压屏（推荐 · 动背景）</strong>
-          <span>把真小车 / 纸飞机摆进下方金色停机坪</span>
-        </button>
-        <button type="button" class="mode-card-btn" data-mode="arcade">
-          <strong>✈️ 纯屏街机（无实物 · 动战机）</strong>
-          <span>手边没玩具也能直接驾驶虚拟战机</span>
-        </button>
-      </div>
+      <div class="title-config-deck">
+        <div class="title-mode-row" role="group" aria-label="选择起飞方式">
+          <button type="button" class="mode-card-btn active" data-mode="tabletop">
+            <strong>🛸 实体压屏（推荐 · 动背景）</strong>
+            <span>把真小车 / 纸飞机摆进下方金色停机坪</span>
+          </button>
+          <button type="button" class="mode-card-btn" data-mode="arcade">
+            <strong>✈️ 纯屏街机（无实物 · 动战机）</strong>
+            <span>手边没玩具也能直接驾驶虚拟战机</span>
+          </button>
+        </div>
 
-      <div class="toy-row" role="group" aria-label="选择玩具类型">
-        <span>玩具</span>
-        <button type="button" class="toy-chip" data-toy="jet" data-w="92" data-l="122" title="速度快、射速高、判定小，但机体较薄">✈️ 飞机 · 灵巧</button>
-        <button type="button" class="toy-chip" data-toy="car" data-w="74" data-l="118" title="机体厚、子弹重，撞上小型敌机会直接撞飞">🚗 小车 · 坦克</button>
-        <button type="button" class="toy-chip" data-toy="orb" data-w="68" data-l="68" title="自带环绕护卫球拦截子弹，顺风充能更快">🧿 瓶盖 · 守护</button>
-        <label class="toy-name">它叫
-          <input type="text" id="toy-name-input" maxlength="8" placeholder="给它起个名字" autocomplete="off">
-        </label>
-      </div>
+        <div class="title-prefs-row">
+          <div class="toy-row" role="group" aria-label="选择玩具类型">
+            <span>玩具</span>
+            <button type="button" class="toy-chip" data-toy="jet" data-w="92" data-l="122" title="速度快、射速高、判定小，但机体较薄">✈️ 飞机 · 灵巧</button>
+            <button type="button" class="toy-chip" data-toy="car" data-w="74" data-l="118" title="机体厚、子弹重，撞上小型敌机会直接撞飞">🚗 小车 · 坦克</button>
+            <button type="button" class="toy-chip" data-toy="orb" data-w="68" data-l="68" title="自带环绕护卫球拦截子弹，顺风充能更快">🧿 瓶盖 · 守护</button>
+            <label class="toy-name">它叫
+              <input type="text" id="toy-name-input" maxlength="8" placeholder="给它起个名字" autocomplete="off">
+            </label>
+          </div>
 
-      <div class="difficulty-row" role="group" aria-label="选择难度">
-        <span>难度</span>
-        <button type="button" class="diff-chip" data-difficulty="easy">🧸 轻松 · 小朋友</button>
-        <button type="button" class="diff-chip active" data-difficulty="normal">✈️ 标准</button>
-        <button type="button" class="diff-chip" data-difficulty="ace">🔥 王牌</button>
+          <div class="difficulty-row" role="group" aria-label="选择难度">
+            <span>难度</span>
+            <button type="button" class="diff-chip" data-difficulty="easy">🧸 轻松</button>
+            <button type="button" class="diff-chip active" data-difficulty="normal">✈️ 标准</button>
+            <button type="button" class="diff-chip" data-difficulty="ace">🔥 王牌</button>
+          </div>
+        </div>
       </div>
 
       <div class="cta-row">
         <button type="button" id="btn-start-mission" class="cta-launch">
-          🚀 点火起飞 (Enter)
+          🚀 点火起飞 · 新手引导
         </button>
         <button type="button" id="btn-title-calib" class="cta-secondary">
-          🎯 边看边调底座尺寸
+          🎯 校准底座
         </button>
         <button type="button" id="btn-title-setup" class="cta-secondary">
-          📱 手机扫码遥控
+          📱 手机遥控
         </button>
         <button type="button" id="btn-title-help" class="cta-secondary">
           📖 玩法说明
         </button>
       </div>
-
-      <p class="title-best" id="title-best" hidden></p>
 
       <p class="helipad-guide" id="title-helipad-tip">
         ⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内
@@ -1595,6 +1685,7 @@
           </div>
           <span id="go-record" class="new-record" hidden>🏆 新纪录！</span>
           <span id="go-best" style="font-size:0.75rem;">历史最佳 0</span>
+          <div id="go-skills-box" style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:6px;" hidden></div>
         </div>
 
         <div class="action-stack">
@@ -1615,6 +1706,11 @@
         <section class="help-sec">
           <h3>目标</h3>
           <p>飞完三幕航段，每一幕后半段会出现<strong>封锁舰 Boss</strong>（左上角的金色进度条走满时到来）。中途会有<strong>补给空投</strong>，每打败一艘封锁舰，机体都会<strong>永久强化</strong>：耐久上限、僚机、核弹，火力上限也会提高一级。</p>
+        </section>
+
+        <section class="help-sec">
+          <h3>⚡ 经验棱晶与三选一核心进化</h3>
+          <p>击落敌机、拆毁水雷、削减 Boss 血量阶段或擦弹都会掉落璀璨的<strong>经验棱晶</strong>（对手机麦克风吹气顺风可<strong>全屏卷吸经验</strong>！）。顶部流光经验条蓄满后战局自动悬停，可从 <strong>3 张随机技能卡</strong>（弹道 / 借风 / 僚机 / 重武 / 机甲五大流派 + 3 张金色传说觉醒卡）中任选一张叠星进化！支持大屏点选、键盘 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>、手柄摇杆，或在<strong>手机座舱屏幕</strong>上直接单手选卡。</p>
         </section>
 
         <section class="help-sec">
@@ -1814,6 +1910,9 @@
   <script src="./js/qrcode-mini.js"></script>
   <script src="./js/sound-fx.js"></script>
   <script src="./js/link-bridge.js"></script>
+  <script src="./js/scenery-renderer.js"></script>
+  <script src="./js/aircraft-renderer.js"></script>
+  <script src="./js/roguelite-skills.js"></script>
   <script src="./js/game-engine.js"></script>
   <script src="./js/flight-card.js"></script>
   <script>
@@ -2046,7 +2145,7 @@
         btnPause.hidden = !isPlaying;
         btnPause.firstElementChild.textContent = st.paused ? '▶' : '⏸';
         document.getElementById('pc-skip-tutorial').hidden = !st.tutorialActive;
-        btnStartMission.textContent = st.tutorialDone ? '🚀 点火起飞 (Enter)' : '🚀 点火起飞 · 含新手引导 (Enter)';
+        btnStartMission.textContent = st.tutorialDone ? '🚀 点火起飞' : '🚀 点火起飞 · 新手引导';
 
         modeBtnLabel.textContent =
           st.mode === 'tabletop' ? '模式：实体压屏' : '模式：纯屏街机';
@@ -2129,6 +2228,15 @@
           goBest.textContent = run.newRecord && run.prevBest > 0
             ? `刷新历史最佳（上次 ${run.prevBest}）`
             : `历史最佳 ${(st.best && st.best.score) || 0}`;
+          const goSkillsBox = document.getElementById('go-skills-box');
+          if (goSkillsBox) {
+            const sks = Array.isArray(st.pickedSkills) ? st.pickedSkills : [];
+            goSkillsBox.hidden = sks.length === 0 && (st.level || 1) <= 1;
+            if (!goSkillsBox.hidden) {
+              goSkillsBox.innerHTML = `<span style="font-size:0.72rem;font-weight:800;padding:2px 8px;border-radius:999px;background:rgba(56,189,248,0.2);border:1px solid rgba(56,189,248,0.5);color:#bae6fd;">核心 Lv.${st.level || 1}</span>` +
+                sks.slice(0, 6).map((s) => `<span style="font-size:0.7rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(30,41,59,0.85);border:1px solid ${s.rarity === 'epic' ? 'rgba(251,191,36,0.65)' : 'rgba(148,163,184,0.3)'};color:${s.rarity === 'epic' ? '#fde68a' : '#e2e8f0'};">${s.iconEmoji || '⚡'} ${s.name}${'★'.repeat(s.stars || 1)}</span>`).join('');
+            }
+          }
         }
 
         const best = st.best || {};
@@ -2256,6 +2364,12 @@
           } else if (type === 'stopToTitle') {
             if (dialog.open) dialog.close();
             engine.stopToTitle();
+          } else if (type === 'pickSkill') {
+            sfx.unlock();
+            if (payload && typeof payload.index === 'number') engine.pickSkill(payload.index);
+          } else if (type === 'rerollSkills') {
+            sfx.unlock();
+            engine.rerollSkills();
           } else if (type === 'requestState') {
             bridge.send('hostState', engine.getPublicState());
           }
@@ -2473,6 +2587,8 @@
           hitsTaken: st.hitsTaken,
           bossKills: st.bossKills,
           crewAssists: st.crewAssists,
+          playerLevel: st.level,
+          pickedSkills: st.pickedSkills,
           epilogue: gameoverEpilogue.textContent,
           snapshot: endSnapshot || undefined
         });
@@ -2704,6 +2820,33 @@
         }
         sfx.unlock();
 
+        if (engine.isSkillDraftOpen && engine.isSkillDraftOpen()) {
+          if (ev.repeat) return;
+          if (ev.code === 'Digit1' || ev.code === 'Numpad1') {
+            ev.preventDefault();
+            engine.pickSkill(0);
+          } else if (ev.code === 'Digit2' || ev.code === 'Numpad2') {
+            ev.preventDefault();
+            engine.pickSkill(1);
+          } else if (ev.code === 'Digit3' || ev.code === 'Numpad3') {
+            ev.preventDefault();
+            engine.pickSkill(2);
+          } else if (ev.code === 'ArrowLeft' || ev.code === 'KeyA') {
+            ev.preventDefault();
+            engine.moveSkillFocus(-1);
+          } else if (ev.code === 'ArrowRight' || ev.code === 'KeyD') {
+            ev.preventDefault();
+            engine.moveSkillFocus(1);
+          } else if (ev.code === 'Enter' || ev.code === 'Space') {
+            ev.preventDefault();
+            engine.confirmSkillFocus();
+          } else if (ev.code === 'KeyR') {
+            ev.preventDefault();
+            engine.rerollSkills();
+          }
+          return;
+        }
+
         if (engine.phase === 'title') {
           if (ev.code === 'Enter' || ev.code === 'Space') {
             ev.preventDefault();
@@ -2782,7 +2925,9 @@
       syncHudInset();
       if (window.ResizeObserver) new ResizeObserver(syncHudInset).observe(topBar);
 
+      let draftFrameFrozen = false;
       window.addEventListener('resize', () => {
+        draftFrameFrozen = false;
         engine.resize();
         syncHudInset();
         syncCoachPlacement();
@@ -2796,7 +2941,15 @@
         lastTs = now;
         try {
           engine.step(dt);
-          engine.render();
+          if (engine.skillDraftOpen && !engine.calibDrawerOpen) {
+            if (!draftFrameFrozen) {
+              engine.render();
+              draftFrameFrozen = true;
+            }
+          } else {
+            draftFrameFrozen = false;
+            engine.render();
+          }
         } catch (err) {
           console.error('[SkyStriker] frame error', err);
           if (engine.ctx.reset) engine.ctx.reset();

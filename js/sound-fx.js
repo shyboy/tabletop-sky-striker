@@ -936,6 +936,77 @@
       this._noise('bandpass', 3800, 1500, now + 0.05, 0.1, 0.09, 1.5);
       this._tone('square', 95, 60, now, 0.12, 0.05);
     }
+
+    /** Crisp crystalline XP gem pickup rising along a pentatonic scale. */
+    xpPickup(chain = 0) {
+      if (!this._ready() || !this._throttle('xp', 0.036)) return;
+      const now = this.ctx.currentTime;
+      const scale = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+      const idx = Math.max(0, Math.min(scale.length - 1, Math.round(Number(chain) || 0)));
+      const f = 659.25 * Math.pow(2, scale[idx] / 12);
+      this._tone('sine', f, f * 1.02, now, 0.085, 0.055);
+      this._tone('triangle', f * 2, f * 2, now + 0.012, 0.07, 0.024);
+    }
+
+    /** Radiant ascending arpeggio when leveling up for a 3-card skill draft. */
+    levelUp() {
+      if (!this._ready() || !this._throttle('lvlup', 0.25)) return;
+      const now = this.ctx.currentTime;
+      const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
+      notes.forEach((f, i) => {
+        const t = now + i * 0.055;
+        this._tone('triangle', f, f, t, 0.34, 0.085);
+        this._tone('sine', f * 2, f * 2, t + 0.01, 0.26, 0.03);
+      });
+    }
+
+    /** Mechanical lock-in + rarity shimmer on picking a skill card. */
+    skillPick(rarity = 'common') {
+      if (!this._ready()) return;
+      const now = this.ctx.currentTime;
+      this._tone('triangle', 440, 880, now, 0.12, 0.08);
+      this._tone('sine', 1174.66, 1174.66, now + 0.06, 0.22, 0.065);
+      if (rarity === 'epic') {
+        [587.33, 880, 1174.66, 1760].forEach((f, i) => {
+          this._tone('sine', f, f, now + 0.05 + i * 0.045, 0.45, 0.06);
+        });
+      } else if (rarity === 'rare') {
+        this._tone('sine', 1479.98, 1479.98, now + 0.11, 0.28, 0.05);
+      }
+    }
+
+    /** Quick electronic shuffle sound when rerolling skill cards. */
+    skillReroll() {
+      if (!this._ready() || !this._throttle('reroll', 0.1)) return;
+      const now = this.ctx.currentTime;
+      [587.33, 698.46, 880].forEach((f, i) => {
+        this._tone('sine', f, f * 1.08, now + i * 0.035, 0.07, 0.05);
+      });
+    }
+
+    /** Soft pneumatic whoosh for micro-missiles. */
+    missileLaunch() {
+      if (!this._ready() || !this._throttle('msl', 0.16)) return;
+      const now = this.ctx.currentTime;
+      this._noise('bandpass', 1600, 720, now, 0.09, 0.055, 2.2);
+      this._tone('triangle', 520, 260, now, 0.08, 0.035);
+    }
+
+    /** Snappy arc jump for chain lightning. */
+    chainLightning() {
+      if (!this._ready() || !this._throttle('chain', 0.12)) return;
+      const now = this.ctx.currentTime;
+      this._noise('highpass', 3000, 1400, now, 0.07, 0.065);
+      this._tone('sawtooth', 1850, 420, now, 0.065, 0.045);
+    }
+
+    /** Crisp crescent wind-blade slash. */
+    windBlade() {
+      if (!this._ready() || !this._throttle('wblade', 0.14)) return;
+      const now = this.ctx.currentTime;
+      this._noise('bandpass', 1950, 980, now, 0.11, 0.06, 2.8);
+      this._tone('sine', 920, 1480, now, 0.09, 0.035);
+    }
   }
 
   global.SoundFX = SoundFX;

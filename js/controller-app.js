@@ -34,6 +34,7 @@
     micLevel: 0,
     blowFrames: 0,
     lastGustAt: 0,
+    skillDraft: null,
     telemetry: {
       phase: 'title',
       paused: false,
@@ -73,6 +74,11 @@
   const lvText = document.getElementById('lv-text');
   const waveLabel = document.getElementById('wave-label');
   const hpFill = document.getElementById('hp-fill');
+  const xpFill = document.getElementById('xp-fill');
+  const skillDraftDialog = document.getElementById('skill-draft-dialog');
+  const cDraftTitle = document.getElementById('c-draft-title');
+  const cDraftList = document.getElementById('c-draft-list');
+  const cDraftReroll = document.getElementById('c-draft-reroll');
   const joyZone = document.getElementById('joystick-zone');
   const stickKnob = document.getElementById('stick-knob');
   const btnTouch = document.getElementById('btn-touch-mode');
@@ -134,11 +140,21 @@
           vibrate([90, 60, 90, 60, 140]);
           sfx.bossAlarm();
         }
-        renderTelemetryUI();
+        if (payload.skillDraftOpen === false && state.skillDraft !== null) {
+          state.skillDraft = null;
+          renderSkillDraftModal(null);
+        }
+        if (!(skillDraftDialog && skillDraftDialog.open)) {
+          renderTelemetryUI();
+        }
       } else if (type === 'hostState' && payload) {
         Object.assign(state.telemetry, payload);
+        state.skillDraft = payload.skillDraft || null;
+        renderSkillDraftModal(state.skillDraft);
         syncCalibSliders(payload);
-        renderTelemetryUI();
+        if (!(skillDraftDialog && skillDraftDialog.open)) {
+          renderTelemetryUI();
+        }
       }
     },
     onStatus(info) {
@@ -229,7 +245,7 @@
     state.gyroVx = normAxis(dGamma, 26);
     state.gyroVy = normAxis(dBeta, 24);
 
-    if (state.controlMode === 'gyro' && !state.touchOverride) {
+    if (state.controlMode === 'gyro' && !state.touchOverride && !(skillDraftDialog && skillDraftDialog.open)) {
       updateKnobVisual(state.gyroVx, state.gyroVy);
     }
   }
@@ -411,7 +427,9 @@
         const rms = Math.sqrt(sumSq / buf.length);
         const lv = clamp(rms * 3.4, 0, 1);
         state.micLevel = lv;
-        micBar.style.inlineSize = `${Math.round(lv * 100)}%`;
+        if (!(skillDraftDialog && skillDraftDialog.open)) {
+          micBar.style.inlineSize = `${Math.round(lv * 100)}%`;
+        }
 
         if (lv > 0.42 && state.telemetry.phase === 'playing' && !state.telemetry.paused) {
           state.blowFrames++;
@@ -550,8 +568,9 @@
     const isGameOver = phase === 'gameover';
 
     scoreText.textContent = String(t.score || 0).padStart(7, '0');
-    lvText.textContent = `火力 Lv.${t.weaponLv || 1}`;
+    lvText.textContent = `Lv.${t.level || 1} · 火力${t.weaponLv || 1}`;
     hpFill.style.inlineSize = `${clamp(t.hp ?? 100, 0, 100)}%`;
+    if (xpFill) xpFill.style.inlineSize = `${clamp((t.xpRatio || 0) * 100, 0, 100)}%`;
 
     if (onTitle) {
       waveLabel.textContent = '停机坪待命';
@@ -603,6 +622,86 @@
       const pct = Math.round((t.gustReady ?? 1) * 100);
       btnWind.textContent = pct >= 100 ? '💨 吹气 / 点按顺风' : `💨 顺风充能 ${pct}%`;
     }
+  }
+
+  let lastDraftKey = '';
+  let pickLockUntil = 0;
+  if (skillDraftDialog) {
+    skillDraftDialog.addEventListener('cancel', (ev) => ev.preventDefault());
+  }
+  if (cDraftReroll) {
+    cDraftReroll.addEventListener('click', () => {
+      const now = performance.now();
+      if (now < pickLockUntil) return;
+      pickLockUntil = now + 350;
+      sfx.unlock();
+      sfx.skillReroll && sfx.skillReroll();
+      vibrate(25);
+      if (bridge) bridge.send('rerollSkills', {});
+    });
+  }
+
+  function renderSkillDraftModal(draft) {
+    if (!skillDraftDialog || !cDraftList) return;
+    if (!draft || !Array.isArray(draft.choices) || draft.choices.length === 0) {
+      lastDraftKey = '';
+      if (skillDraftDialog.open) {
+        try { skillDraftDialog.close(); } catch (_) { skillDraftDialog.removeAttribute('open'); }
+      }
+      return;
+    }
+    const key = `${draft.level}|${draft.rerollsLeft}|${draft.choices.map((c) => `${c.id}:${c.stars}`).join(',')}`;
+    if (key === lastDraftKey && skillDraftDialog.open) return;
+    const isNewOpen = !skillDraftDialog.open;
+    lastDraftKey = key;
+
+    if (isNewOpen) {
+      if (calibDialog && calibDialog.open) {
+        try { calibDialog.close(); } catch (_) {}
+      }
+      state.touchOverride = false;
+      state.stickVx = 0;
+      state.stickVy = 0;
+      if (state.controlMode === 'touch') updateKnobVisual(0, 0);
+      if (state.railCharge > 0) setRailVisual(0);
+    }
+
+    if (cDraftTitle) cDraftTitle.textContent = `⚡ 核心升级 · Lv.${draft.level}`;
+    if (cDraftReroll) {
+      cDraftReroll.disabled = (draft.rerollsLeft || 0) <= 0;
+      cDraftReroll.textContent = `🎲 换一批 (剩余 ${draft.rerollsLeft || 0})`;
+    }
+    const rarityColors = { common: '#38bdf8', rare: '#c084fc', epic: '#fbbf24' };
+    cDraftList.innerHTML = '';
+    draft.choices.forEach((c, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'c-draft-card';
+      btn.style.setProperty('--c-accent', rarityColors[c.rarity] || '#38bdf8');
+      const stars = c.maxStars === 1 ? '★觉醒' : '★'.repeat(c.stars) + '☆'.repeat(Math.max(0, c.maxStars - c.stars));
+      btn.innerHTML = `
+        <div class="c-draft-row">
+          <span class="c-draft-name">${c.iconEmoji || '⚡'} ${c.name}</span>
+          <span class="c-draft-badge">${c.category} · ${stars}</span>
+        </div>
+        <div class="c-draft-desc">${c.desc}</div>
+      `;
+      btn.addEventListener('click', () => {
+        const now = performance.now();
+        if (now < pickLockUntil) return;
+        pickLockUntil = now + 350;
+        sfx.unlock();
+        sfx.skillPick && sfx.skillPick(c.rarity);
+        vibrate(40);
+        if (bridge) bridge.send('pickSkill', { index: idx });
+      });
+      cDraftList.appendChild(btn);
+    });
+
+    if (!skillDraftDialog.open) {
+      try { skillDraftDialog.showModal(); } catch (_) { skillDraftDialog.setAttribute('open', ''); }
+    }
+    if (isNewOpen) vibrate([30, 40, 65]);
   }
 
   // 8. 45Hz Control Stream + Tactical Radar Canvas Render
@@ -666,18 +765,20 @@
 
   let lastSend = 0;
   function tick(now) {
-    drawRadar();
-    if (now - lastSend >= 22) {
-      lastSend = now;
-      const vx = state.touchOverride || state.controlMode === 'touch' ? state.stickVx : state.gyroVx;
-      const vy = state.touchOverride || state.controlMode === 'touch' ? state.stickVy : state.gyroVy;
-      bridge.send('input', {
-        vx: Number(vx.toFixed(3)),
-        vy: Number(vy.toFixed(3)),
-        firing: true,
-        railCharge: Number(state.railCharge.toFixed(3)),
-        micLevel: Number(state.micLevel.toFixed(2))
-      });
+    if (!(skillDraftDialog && skillDraftDialog.open)) {
+      drawRadar();
+      if (now - lastSend >= 22) {
+        lastSend = now;
+        const vx = state.touchOverride || state.controlMode === 'touch' ? state.stickVx : state.gyroVx;
+        const vy = state.touchOverride || state.controlMode === 'touch' ? state.stickVy : state.gyroVy;
+        bridge.send('input', {
+          vx: Number(vx.toFixed(3)),
+          vy: Number(vy.toFixed(3)),
+          firing: true,
+          railCharge: Number(state.railCharge.toFixed(3)),
+          micLevel: Number(state.micLevel.toFixed(2))
+        });
+      }
     }
     requestAnimationFrame(tick);
   }

@@ -243,6 +243,71 @@
       this.hudTop = 12; // set by the host page to sit below its floating toolbar
       this.manualPaused = false;
       this.setupPaused = false;
+      this.skillDraftOpen = false;
+      this._gpStickLatch = false;
+
+      this.scenery = global.SkySceneryRenderer ? new global.SkySceneryRenderer() : null;
+      this.roguelite = global.SkyRoguelite ? new global.SkyRoguelite({
+        sfx: this.sfx,
+        onDraftChange: (draft) => {
+          const wasOpen = this.skillDraftOpen;
+          this.skillDraftOpen = Boolean(draft);
+          if (this.skillDraftOpen) {
+            this.keys.clear();
+            this.pointerDrag.active = false;
+          } else if (wasOpen && this.phase === 'playing') {
+            // Post-draft safety grace: 1.5s invulnerability + gentle shockwave clearing nearby shots
+            this._applyToyTraits(false);
+            this.player.invulnTimer = Math.max(this.player.invulnTimer, 1.5);
+            const px = this._playerWorldX();
+            const py = this._playerWorldY();
+            this.shockwaves.push({ x: px, y: py, r: 16, maxR: 150, color: '#38bdf8', life: 0.4, maxLife: 0.4, width: 6 });
+            for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
+              const eb = this.enemyBullets[i];
+              if (Math.hypot(eb.x - px, eb.y - py) < 145) this.enemyBullets.splice(i, 1);
+            }
+          }
+          this.onStateChange(this.getPublicState());
+        },
+        onApplyInstant: (choice) => {
+          if (!choice || !this.player) return;
+          const p = this.player;
+          const px = this._playerWorldX();
+          const py = this._playerWorldY();
+          if (choice.id === '_auto_shield') {
+            if (p.shield < 2 && this.phase === 'playing') {
+              p.shield++;
+              this._sfx('shieldUp');
+              this.floatingTexts.push({ x: px, y: py - 54, text: '🔷 相位护盾充能完成', color: '#67e8f9', life: 1.1 });
+              this._stateDirty = true;
+            }
+            return;
+          }
+          this._applyToyTraits(false);
+          if (choice.id === 'nano_hull') {
+            p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.35));
+          } else if (choice.id === 'phase_aegis') {
+            p.shield = Math.min(2, p.shield + 1);
+            this._sfx('shieldUp');
+          } else if (choice.id === 'drone_swarm') {
+            const mods = this._mods();
+            p.droneCount = Math.min(mods.maxDrones, p.droneCount + 1);
+          } else if (choice.id === 'tactical_arsenal') {
+            p.nukes = Math.min(p.maxNukes + 1, p.nukes + 1);
+          }
+          this.floatingTexts.push({
+            x: px, y: py - 68,
+            text: `${choice.iconEmoji || '⚡'} 习得：${choice.name}`,
+            color: choice.rarity === 'epic' ? '#fde047' : '#7dd3fc',
+            life: 1.4, big: true
+          });
+          this._stateDirty = true;
+        },
+        onDealDamage: (enemy, dmg, meta = {}) => {
+          if (!enemy || enemy.dead || enemy.hp <= 0) return;
+          this._damageEnemy(enemy, dmg, undefined, meta);
+        }
+      }) : null;
 
       // Input state (merged from mobile controller, gamepad, keyboard)
       this.remoteInput = { vx: 0, vy: 0, firing: true, railCharge: 0, micLevel: 0 };
@@ -265,7 +330,40 @@
     }
 
     get isPaused() {
-      return this.phase === 'playing' && (this.manualPaused || this.setupPaused);
+      return this.phase === 'playing' && (this.manualPaused || this.setupPaused || this.skillDraftOpen);
+    }
+
+    _mods() {
+      if (this.roguelite) return this.roguelite.getModifiers();
+      return {
+        evoTier: 0, splitShots: 0, pierceCount: 0, fireRateMult: 1, damageMult: 1,
+        critChance: 0, critMult: 1, pickupRadiusMult: 1, xpMult: 1,
+        lungCapMult: 1, lungRegenMult: 1, gustCdMult: 1, windReflectMult: 1.8, windReflectHoming: false,
+        maxDrones: 4, droneDamageMult: 1, hasLightning: false,
+        railChargeMult: 1, railPerfectWindowMult: 1, railAwakened: false, railDamageMult: 1,
+        maxHpBonus: 0, hullRegenPerSec: 0, autoShieldInterval: 0,
+        grazeRadiusMult: 1, grazeGustReduce: 0, grazeXp: 0, tempestAura: false
+      };
+    }
+
+    isSkillDraftOpen() {
+      return Boolean(this.roguelite && this.roguelite.isDraftOpen());
+    }
+
+    pickSkill(index) {
+      return this.roguelite ? this.roguelite.pickCard(index) : false;
+    }
+
+    rerollSkills() {
+      return this.roguelite ? this.roguelite.reroll() : false;
+    }
+
+    moveSkillFocus(delta) {
+      if (this.roguelite) this.roguelite.moveFocus(delta);
+    }
+
+    confirmSkillFocus() {
+      if (this.roguelite) this.roguelite.confirmFocus();
     }
 
     _initWorldContainers() {
@@ -393,6 +491,8 @@
     stopToTitle() {
       if (this.phase === 'playing' && this.score > 0) this._endRun();
       this._initWorldContainers();
+      this.skillDraftOpen = false;
+      if (this.roguelite) this.roguelite.reset({});
       this.phase = 'title';
       this.gameOver = false;
       this.manualPaused = false;
@@ -405,6 +505,9 @@
     // opts.tutorial: true forces the guided first flight, false skips it; default = only until finished once
     startMission(opts = {}) {
       this._initWorldContainers();
+      this.skillDraftOpen = false;
+      const wantTutorial = typeof opts.tutorial === 'boolean' ? opts.tutorial : !this.tutorialDone;
+      if (this.roguelite) this.roguelite.reset({ tutorial: wantTutorial });
       this.lastRun = null;
       this.phase = 'playing';
       this.gameOver = false;
@@ -412,7 +515,6 @@
       this.player.shield = this.tier.startShield || 0;
       this._applyToyTraits(true);
       this.calibHighlightTimer = 3.2;
-      const wantTutorial = typeof opts.tutorial === 'boolean' ? opts.tutorial : !this.tutorialDone;
       if (wantTutorial) {
         this._startTutorial();
       } else {
@@ -490,6 +592,7 @@
       this.height = Math.max(320, rect.height || global.innerHeight);
       this.canvas.width = Math.round(this.width * this.dpr);
       this.canvas.height = Math.round(this.height * this.dpr);
+      if (this.scenery) this.scenery.resize(this.width, this.height, this.dpr);
       if (this.player) {
         if (this.rig.mode === 'tabletop') {
           this.player.screenX = this.width * 0.5;
@@ -565,16 +668,24 @@
       for (const pt of this.particles) { pt.x += dx; pt.y += dy; }
       for (const sw of this.shockwaves) { sw.x += dx; sw.y += dy; }
       for (const ft of this.floatingTexts) { ft.x += dx; ft.y += dy; }
+      if (this.roguelite) this.roguelite.shiftWorldEntities(dx, dy);
     }
 
     getPublicState() {
       const ch = this.getCurrentChapter();
+      const rg = this.roguelite ? this.roguelite.getSummary() : { level: 1, xpRatio: 0, evoTier: 0, pickedSkills: [] };
       return {
         ...this.rig,
         phase: this.phase,
         paused: this.isPaused,
         manualPaused: this.manualPaused,
         setupPaused: this.setupPaused,
+        skillDraftOpen: this.skillDraftOpen,
+        skillDraft: this.roguelite ? this.roguelite.getDraftState() : null,
+        level: rg.level,
+        xpRatio: Number((rg.xpRatio || 0).toFixed(3)),
+        evoTier: rg.evoTier,
+        pickedSkills: rg.pickedSkills,
         gameOver: this.phase === 'gameover',
         score: Math.floor(this.score),
         distanceKm: Number(this.distanceKm.toFixed(1)),
@@ -719,8 +830,10 @@
     triggerRailgun(power = 1) {
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.railCooldown > 0 || p.railBeamTimer > 0) return false;
+      const mods = this._mods();
+      const perfWin = 0.45 * mods.railPerfectWindowMult;
       const sinceFull = this.fullChargeAt !== null && this.fullChargeAt !== undefined ? this.time - this.fullChargeAt : 99;
-      const perfect = power >= 0.97 && sinceFull <= 0.45;
+      const perfect = power >= 0.97 && sinceFull <= perfWin;
       const overheated = power >= 0.97 && !perfect;
       this.fullChargeAt = null;
       if (overheated) power = 0.8;
@@ -728,8 +841,15 @@
       p.railBeamPower = clampedPower;
       p.railPerfect = perfect;
       p.railBeamTimer = 0.45 + Math.min(1, clampedPower) * 0.35 + (perfect ? 0.2 : 0);
+      const px = this._playerWorldX();
+      const py = this._playerWorldY();
       if (perfect) {
-        this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 110, text: '⚡ 完美蓄力！', color: '#a5f3fc', life: 1.1, big: true });
+        this.floatingTexts.push({ x: px, y: py - 110, text: mods.railAwakened ? '🌟 阳电子破城完美释放！' : '⚡ 完美蓄力！', color: '#a5f3fc', life: 1.1, big: true });
+      }
+      if (this.roguelite) {
+        const muzzleY = py - (this.rig.mode === 'tabletop' ? this.rig.length * 0.5 : 28);
+        const beamW = (16 + clampedPower * 28) * (mods.railAwakened ? 1.35 : 1);
+        this.roguelite.notifyRailgun(px, muzzleY, beamW, clampedPower, this.enemies, this.height * 1.15);
       }
       p.railCooldown = 1.6;
       if (this.tutorial) this.tutorial.railed = true;
@@ -856,6 +976,10 @@
       for (const pwp of this.powerups) {
         pwp.magnet = true;
       }
+      if (this.roguelite) {
+        const worldVyOffset = this.rig.mode === 'tabletop' ? -p.cruiseSpeed : 0;
+        this.roguelite.notifyGust(cx, cy, pw, worldVyOffset);
+      }
       return true;
     }
 
@@ -871,6 +995,9 @@
       const cx = this._playerWorldX();
       const cy = this._playerWorldY();
       this.shockwaves.push({ x: cx, y: cy, r: 16, maxR: 155, color: '#a5f3fc', life: 0.38, maxLife: 0.38, width: 6 });
+      if (this.roguelite) {
+        this.roguelite.notifyBarrelRoll(cx, cy, this.enemies, this.enemyBullets);
+      }
 
       for (const eb of this.enemyBullets) {
         const dx = eb.x - cx;
@@ -939,16 +1066,32 @@
         const pressed = (idx) => Boolean(gp.buttons[idx] && gp.buttons[idx].pressed);
         const justPressed = (idx) => pressed(idx) && !this.prevGpButtons[idx];
 
+        if (this.skillDraftOpen) {
+          if (Math.abs(gx) < 0.25) this._gpStickLatch = false;
+          if ((gx < -0.55 && !this._gpStickLatch) || justPressed(14)) {
+            this._gpStickLatch = true;
+            this.moveSkillFocus(-1);
+          } else if ((gx > 0.55 && !this._gpStickLatch) || justPressed(15)) {
+            this._gpStickLatch = true;
+            this.moveSkillFocus(1);
+          }
+          if (justPressed(0)) this.confirmSkillFocus();
+          if (justPressed(2) || justPressed(3)) this.rerollSkills();
+          this.prevGpButtons = gp.buttons.map((b) => Boolean(b && b.pressed));
+          return { vx: 0, vy: 0, active: false, firing: false };
+        }
+
         // Start/Options button (9) toggles Pause or Starts Mission!
         if (justPressed(9)) {
           if (this.phase === 'title' || this.phase === 'gameover') this.startMission();
-          else if (!this.setupPaused) this.toggleManualPause();
+          else if (!this.setupPaused && !this.skillDraftOpen) this.toggleManualPause();
         }
 
         if (this.phase === 'playing' && !this.isPaused) {
+          const mods = this._mods();
           const l2Val = gp.buttons[6] ? gp.buttons[6].value : 0;
           if (l2Val > 0.15) {
-            this.localRailCharge = clamp(this.localRailCharge + dt * 1.15, 0, 1);
+            this.localRailCharge = clamp(this.localRailCharge + dt * 1.15 * mods.railChargeMult, 0, 1);
             this.sfx.chargeTick(this.localRailCharge);
           } else if (this.prevGpL2 > 0.35 && l2Val <= 0.15) {
             this.triggerRailgun(this.localRailCharge);
@@ -997,8 +1140,9 @@
         ky *= Math.SQRT1_2;
       }
 
+      const mods = this._mods();
       if (this.keys.has('KeyJ') || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) {
-        this.localRailCharge = clamp(this.localRailCharge + dt * 1.1, 0, 1);
+        this.localRailCharge = clamp(this.localRailCharge + dt * 1.1 * mods.railChargeMult, 0, 1);
         this.sfx.chargeTick(this.localRailCharge);
       } else if (this._wasChargingKey) {
         if (this.localRailCharge >= 0.35) this.triggerRailgun(this.localRailCharge);
@@ -1075,6 +1219,16 @@
         this.player.cameraRoll = lerp(this.player.cameraRoll, -this.player.bank * 0.09, 1 - Math.exp(-dt * 8));
         this.player.screenX = this.width * 0.5;
         this.player.screenY = this.height * this.rig.anchorY;
+        if (this.scenery) {
+          this.scenery.step(dt, {
+            sky: this.getEffectiveSky(),
+            phase: 'title',
+            scrollSpeed: 145,
+            cameraVx: gentleX,
+            time: this.time,
+            calm: this._calmFactors()
+          });
+        }
         return;
       }
 
@@ -1126,9 +1280,11 @@
         this.marks[i].life -= dt;
         if (this.marks[i].life <= 0) this.marks.splice(i, 1);
       }
-      // Easy tier: the hull slowly self-repairs while not being hit
-      if (this.tier.regen && p.invulnTimer <= 0 && p.hp > 0 && p.hp < p.maxHp) {
-        p.hp = Math.min(p.maxHp, p.hp + this.tier.regen * dt);
+      // Easy tier + Roguelite Nano-Hull: the hull slowly self-repairs while not being hit
+      const mods = this._mods();
+      const totalRegen = (this.tier.regen || 0) + (mods.hullRegenPerSec || 0);
+      if (totalRegen > 0 && p.invulnTimer <= 0 && p.hp > 0 && p.hp < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp + totalRegen * dt);
       }
       if (this.victoryHoldTimer > 0) {
         this.victoryHoldTimer -= dt;
@@ -1153,13 +1309,13 @@
       }
       let rawBreath = this.breathGate ? inp.breath : 0;
       if (rawBreath > 0 && !this.lungsExhausted) {
-        this.lungs = Math.max(0, this.lungs - dt * 0.24);
+        this.lungs = Math.max(0, this.lungs - (dt * 0.24) / mods.lungCapMult);
         if (this.lungs <= 0) {
           this.lungsExhausted = true;
           this.floatingTexts.push({ x: this._playerWorldX(), y: this._playerWorldY() - 70, text: '呼…换口气！', color: '#e0f2fe', life: 1 });
         }
       } else {
-        this.lungs = Math.min(1, this.lungs + dt * 0.2);
+        this.lungs = Math.min(1, this.lungs + dt * 0.2 * mods.lungRegenMult);
         if (this.lungsExhausted && this.lungs >= 0.35) this.lungsExhausted = false;
       }
       if (this.lungsExhausted) rawBreath = 0;
@@ -1252,19 +1408,19 @@
       p.fireCooldown -= dt;
       if (inp.firing && inp.railCharge < 0.2 && p.railBeamTimer <= 0 && p.fireCooldown <= 0) {
         this._fireMainGuns(px, py);
-        p.fireCooldown = (p.weaponLv >= 4 ? (p.weaponLv >= 5 ? 0.088 : 0.095) : 0.115) * this.traits.fireRate * SHOT_THIN;
+        p.fireCooldown = ((p.weaponLv >= 4 ? (p.weaponLv >= 5 ? 0.088 : 0.095) : 0.115) * this.traits.fireRate * SHOT_THIN) / mods.fireRateMult;
       }
 
       // Flanking Bit-Drones Auto Fire
       p.droneFireCooldown -= dt;
       if (inp.firing && p.droneCount > 0 && p.droneFireCooldown <= 0) {
         this._fireDroneGuns(px, py);
-        p.droneFireCooldown = 0.42;
+        p.droneFireCooldown = 0.42 / mods.fireRateMult;
       }
 
       // Active Railgun Continuous Sweep Damage
       if (p.railBeamTimer > 0) {
-        const beamHalfW = 16 + p.railBeamPower * 28;
+        const beamHalfW = (16 + p.railBeamPower * 28) * (mods.railAwakened ? 1.35 : 1);
         const muzzleY = py - (this.rig.mode === 'tabletop' ? this.rig.length * 0.5 : 28);
         const topReachY = py - this.height * 1.15;
 
@@ -1280,9 +1436,20 @@
           if (Math.abs(e.x - px) <= beamHalfW + e.radius && e.y <= muzzleY + 20 && e.y >= topReachY) {
             // A perfect (fully charged) shot is the answer to an enraged boss core
             const coreBonus = p.railPerfect && e.isBoss && e.enraged ? 2 : 1;
-            this._damageEnemy(e, (260 + 220 * p.railBeamPower) * coreBonus * dt, i);
+            this._damageEnemy(e, (260 + 220 * p.railBeamPower) * mods.railDamageMult * coreBonus * dt, i);
           }
         }
+      }
+
+      if (this.scenery) {
+        this.scenery.step(dt, {
+          sky: this.getEffectiveSky(),
+          phase: this.phase,
+          scrollSpeed: p.cruiseSpeed + this.breath * 140,
+          cameraVx: this.rig.mode === 'tabletop' ? p.vx : p.vx * 0.18,
+          time: this.time,
+          calm: this._calmFactors()
+        });
       }
 
       if (this.tutorial) this._stepTutorial(dt, inp);
@@ -1293,6 +1460,22 @@
       this._stepEnemies(dt, px, py);
       this._stepEnemyBullets(dt, px, py);
       this._stepPowerups(dt, px, py);
+      if (this.roguelite) {
+        this.roguelite.step(dt, {
+          playerX: px,
+          playerY: py,
+          W: this.width,
+          H: this.height,
+          worldVyOffset: this.rig.mode === 'tabletop' ? -p.cruiseSpeed : 0,
+          breath: this.breath,
+          gustActive: p.gustTimer > 0,
+          tutorial: Boolean(this.tutorial),
+          isPaused: this.isPaused,
+          phase: this.phase,
+          enemies: this.enemies,
+          enemyBullets: this.enemyBullets
+        });
+      }
       this._stepParticles(dt);
     }
 
@@ -1304,31 +1487,51 @@
       return this.rig.mode === 'tabletop' ? (this.rig.width * 0.5 + 30) : 44;
     }
 
-    // Formation slots for 2..4 flanking bit-drones (relative to the craft centre)
+    // Formation slots for up to 6 flanking bit-drones (relative to the craft centre)
     _droneSlots() {
       const side = this._droneSideOffsetX();
       const back = this.rig.mode === 'tabletop' ? this.rig.length * 0.32 + 14 : 30;
+      const mods = this._mods();
       const slots = [
         { x: -side, y: 8 },
         { x: side, y: 8 },
         { x: -side * 0.62, y: 8 + back },
-        { x: side * 0.62, y: 8 + back }
+        { x: side * 0.62, y: 8 + back },
+        { x: -side * 1.28, y: 18 + back * 0.45 },
+        { x: side * 1.28, y: 18 + back * 0.45 }
       ];
-      return slots.slice(0, clamp(this.player.droneCount, 0, 4));
+      return slots.slice(0, clamp(this.player.droneCount, 0, mods.maxDrones || 4));
     }
 
     _fireMainGuns(px, py) {
       const my = py + this._muzzleOffsetY();
-      const baseVy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) - 920;
+      const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
+      const baseVy = worldVyOffset - 920;
       const lv = this.player.weaponLv;
+      const mods = this._mods();
 
       this.sfx.laser(lv);
 
-      // Player palette stays cool (cyan / ice / white) so it can never be mistaken for enemy fire
+      // Player palette stays cool (cyan / ice / white) unless landing a golden Crit!
       const SHOT = { '#0369a1': '#38bdf8', '#ea580c': '#7dd3fc', '#dc2626': '#e0f2fe' };
       const addShot = (ox, vx, dmg, color = '#0369a1', w = 4.5, h = 19) => {
         const heavy = this.traits.dmg;
-        this.bullets.push({ x: px + ox, y: my, vx, vy: baseVy, dmg: dmg * heavy * SHOT_THIN, color: SHOT[color] || '#38bdf8', w: heavy > 1 ? w * 1.3 : w, h, life: 1.35 });
+        const isCrit = mods.critChance > 0 && Math.random() < mods.critChance;
+        const finalDmg = dmg * heavy * SHOT_THIN * mods.damageMult * (isCrit ? mods.critMult : 1);
+        this.bullets.push({
+          x: px + ox,
+          y: my,
+          vx,
+          vy: baseVy,
+          dmg: finalDmg,
+          crit: isCrit,
+          pierceLeft: mods.pierceCount || 0,
+          hitSet: mods.pierceCount > 0 ? new Set() : null,
+          color: isCrit ? '#fde047' : (SHOT[color] || '#38bdf8'),
+          w: (heavy > 1 ? w * 1.3 : w) * (isCrit ? 1.25 : 1),
+          h: isCrit ? h * 1.18 : h,
+          life: 1.35
+        });
       };
 
       const spreadBase = this.rig.mode === 'tabletop' ? Math.min(26, this.rig.width * 0.24) : 11;
@@ -1361,10 +1564,23 @@
         addShot(-spreadBase * 2.2, -300, 12, '#0369a1');
         addShot(spreadBase * 2.2, 300, 12, '#0369a1');
       }
+
+      // Roguelite Split-Prism extra diagonal volleys + Sword Barrage counter
+      if (mods.splitShots > 0) {
+        for (let s = 1; s <= mods.splitShots; s++) {
+          const svx = 135 * s;
+          addShot(-spreadBase * 0.8, -svx, 11, '#0369a1', 4, 17);
+          addShot(spreadBase * 0.8, svx, 11, '#0369a1', 4, 17);
+        }
+      }
+      if (this.roguelite) {
+        this.roguelite.notifyMainShot(px, my, 16 * this.traits.dmg, worldVyOffset);
+      }
     }
 
     _fireDroneGuns(px, py) {
       const baseVy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) - 780;
+      const mods = this._mods();
 
       let target = null;
       let bestDist = 680;
@@ -1389,7 +1605,7 @@
           vx = (aimX / len) * 780;
           vy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) + (aimY / len) * 780;
         }
-        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 16, color: '#4ade80', w: 3.5, h: 13, life: 1.2, drone: true });
+        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 16 * mods.droneDamageMult, color: '#4ade80', w: 3.5, h: 13, life: 1.2, drone: true });
       }
     }
 
@@ -1418,11 +1634,12 @@
     _applyToyTraits(refill) {
       const p = this.player;
       const t = this.traits;
+      const mods = this._mods();
       const ratio = p.maxHp > 0 ? p.hp / p.maxHp : 1;
-      const bonus = this.phase === 'playing' ? (this.hullBonus || 0) : 0;
+      const bonus = this.phase === 'playing' ? ((this.hullBonus || 0) + (mods.maxHpBonus || 0)) : 0;
       p.maxHp = t.maxHp + bonus;
       p.hp = refill ? p.maxHp : Math.max(1, Math.round(p.maxHp * ratio));
-      p.gustMaxCooldown = 6 * t.gustCd;
+      p.gustMaxCooldown = 6 * t.gustCd * (mods.gustCdMult || 1);
     }
 
     get tier() {
@@ -1646,28 +1863,53 @@
           continue;
         }
 
-        let hit = false;
+        let removeBullet = false;
         for (let j = this.enemies.length - 1; j >= 0; j--) {
           const e = this.enemies[j];
+          if (!e || e.dead) continue;
+          if (b.hitSet && b.hitSet.has(e)) continue;
           if (Math.abs(b.x - e.x) < e.radius + b.w && Math.abs(b.y - e.y) < e.radius + b.h * 0.5) {
-            this._spawnExplosion(b.x, b.y, b.color, 3, 85);
+            this._spawnExplosion(b.x, b.y, b.color, b.crit ? 5 : 3, b.crit ? 115 : 85);
             this.sfx.enemyHit();
+            if (b.crit && Math.random() < 0.35) {
+              this.floatingTexts.push({ x: e.x + (Math.random() - 0.5) * 18, y: e.y - 16, text: `暴击 ${Math.round(b.dmg)}`, color: '#fde047', life: 0.55 });
+            }
+            if ((b.crit || b.drone) && this.roguelite) {
+              this.roguelite.notifyCritOrDroneHit(e, this.enemies, b.dmg);
+            }
             this._damageEnemy(e, b.dmg, j);
-            hit = true;
-            break;
+            if (b.pierceLeft && b.pierceLeft > 0) {
+              b.pierceLeft -= 1;
+              if (!b.hitSet) b.hitSet = new Set();
+              b.hitSet.add(e);
+            } else {
+              removeBullet = true;
+              break;
+            }
           }
         }
-        if (hit) this.bullets.splice(i, 1);
+        if (removeBullet) this.bullets.splice(i, 1);
       }
     }
 
-    _damageEnemy(e, dmg, indexInArray) {
+    _damageEnemy(e, dmg, indexInArray, meta = {}) {
       if (e.dead) return;
       if (e.bossKind === 'fog' && !(e.unveiled > 0) && dmg < 1e6) dmg *= 0.5;
       if ((e.launchShield > 0 || e.blownBack) && dmg < 1e6 && !this._nuking) return; // fresh hangar escorts: blow them back!
       if (e.marked > 0) dmg *= 1.5; // ground-crew target mark
+      const prevHpRatio = e.maxHp > 0 ? e.hp / e.maxHp : 1;
       e.hp -= dmg;
       e.hitFlash = 0.08;
+
+      // Boss phase XP fountain: every 20% HP lost showers XP gems so player levels up mid-boss too!
+      if (e.isBoss && e.hp > 0 && this.roguelite) {
+        const nextHpRatio = e.hp / e.maxHp;
+        const prevStep = Math.floor(prevHpRatio * 5);
+        const nextStep = Math.floor(nextHpRatio * 5);
+        if (nextStep < prevStep) {
+          this.roguelite.spawnXpBurst(e.x, e.y + 24, 34, 7);
+        }
+      }
 
       // Boss enrage at half HP: new choreography + visual overdrive
       if (e.isBoss && !e.enraged && e.hp > 0 && e.hp <= e.maxHp * 0.5) {
@@ -1710,13 +1952,16 @@
       }
 
       if (e.isBoss) {
+        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, 'boss', true);
         this._onBossDefeated(e);
       } else if (e.type === 'mine') {
+        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, 'mine', false);
         // Shot mines pop harmlessly (only proximity detonation throws shrapnel)
         this.sfx.enemyBoom(false);
         this._spawnExplosion(e.x, e.y, '#fca5a5', 10, 160);
         this.shockwaves.push({ x: e.x, y: e.y, r: 6, maxR: 70, color: '#fda4af', life: 0.3, maxLife: 0.3, width: 4 });
       } else {
+        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, e.type, false);
         const big = e.type === 'gunship' || e.type === 'bomber' || e.type === 'sentinel';
         this.sfx.enemyBoom(false);
         const color = e.type === 'scout' || e.type === 'weaver' ? '#38bdf8' : '#fb923c';
@@ -2497,8 +2742,9 @@
       // Only a small, visible core takes bullet damage (shmup convention); the rest of the toy can graze
       const coreR = this.hitCoreR;
       const sat = this._satellitePos();
-      const grazeW = this.rig.mode === 'tabletop' ? this.rig.width * 0.54 : 30;
-      const grazeL = this.rig.mode === 'tabletop' ? this.rig.length * 0.54 : 34;
+      const mods = this._mods();
+      const grazeW = (this.rig.mode === 'tabletop' ? this.rig.width * 0.54 : 30) * mods.grazeRadiusMult;
+      const grazeL = (this.rig.mode === 'tabletop' ? this.rig.length * 0.54 : 34) * mods.grazeRadiusMult;
 
       for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
         const b = this.enemyBullets[i];
@@ -2507,6 +2753,19 @@
           b.vy -= 1400 * dt;
           b.reflected = true;
           b.color = '#06b6d4';
+        }
+        if (b.reflected && mods.windReflectHoming && this.enemies.length > 0) {
+          let near = null;
+          let bestD = 320 * 320;
+          for (const e of this.enemies) {
+            const d2 = (e.x - b.x) ** 2 + (e.y - b.y) ** 2;
+            if (d2 < bestD) { bestD = d2; near = e; }
+          }
+          if (near) {
+            const ang = Math.atan2(near.y - b.y, near.x - b.x);
+            b.vx = lerp(b.vx, Math.cos(ang) * 760, Math.min(1, dt * 6));
+            b.vy = lerp(b.vy, Math.sin(ang) * 760, Math.min(1, dt * 6));
+          }
         }
         b.x += b.vx * dt;
         b.y += b.vy * dt;
@@ -2522,7 +2781,7 @@
           for (let j = this.enemies.length - 1; j >= 0; j--) {
             const e = this.enemies[j];
             if (Math.hypot(b.x - e.x, b.y - e.y) < e.radius + b.r + 4) {
-              this._damageEnemy(e, 24, j);
+              this._damageEnemy(e, 24 * (mods.windReflectMult || 1.8), j);
               this._spawnExplosion(b.x, b.y, '#67e8f9', 4, 90);
               hitEnemy = true;
               break;
@@ -2552,6 +2811,12 @@
         if (!b.grazed && dx < grazeW + b.r && dy < grazeL + b.r) {
           b.grazed = true;
           this.score += 35;
+          if (mods.grazeGustReduce > 0) {
+            this.player.gustCooldown = Math.max(0, this.player.gustCooldown - mods.grazeGustReduce);
+          }
+          if (this.roguelite) {
+            this.roguelite.addRawXp(1.5 + (mods.grazeXp || 0));
+          }
           this._spawnExplosion(b.x, b.y, '#38bdf8', 2, 60);
         }
       }
@@ -2561,13 +2826,14 @@
       const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
       const collectR = (this.rig.mode === 'tabletop' ? Math.max(this.rig.width, this.rig.length) * 0.58 : 34) + 16;
       const p = this.player;
+      const mods = this._mods();
 
       for (let i = this.powerups.length - 1; i >= 0; i--) {
         const pw = this.powerups[i];
         pw.life -= dt;
         pw.spin += dt * 4;
         const d = Math.hypot(px - pw.x, py - pw.y);
-        if (d < (pw.kind === 'medal' ? 150 : 190)) pw.magnet = true;
+        if (d < (pw.kind === 'medal' ? 150 : 190) * mods.pickupRadiusMult) pw.magnet = true;
 
         if (pw.magnet) {
           const ang = Math.atan2(py - pw.y, px - pw.x);
@@ -2622,7 +2888,8 @@
               color = '#67e8f9';
               this._sfx('shieldUp');
             } else if (pw.kind === 'drone') {
-              if (p.droneCount < 4) {
+              const maxD = mods.maxDrones || 4;
+              if (p.droneCount < maxD) {
                 p.droneCount++;
                 text = `浮游僚机 ×${p.droneCount}`;
               } else {
@@ -2841,11 +3108,15 @@
       }
       const p = this.player;
       const ch = this.getCurrentChapter();
+      const rg = this.roguelite ? this.roguelite.getSummary() : { level: 1, xpRatio: 0 };
       this.onTelemetry({
         phase: this.phase,
         paused: this.isPaused,
         manualPaused: this.manualPaused,
         setupPaused: this.setupPaused,
+        skillDraftOpen: this.skillDraftOpen,
+        level: rg.level,
+        xpRatio: Number((rg.xpRatio || 0).toFixed(3)),
         score: Math.floor(this.score),
         distanceKm: Number(this.distanceKm.toFixed(1)),
         wave: this.wave,
@@ -2981,52 +3252,70 @@
         ctx.translate(sx, sy);
       }
 
-      // 1. Chapter Sky Palette ('day' cerulean | 'sunset' golden dusk | 'night' aurora deep sky)
+      // 1 & 2. Next-Gen 2.5D Scenery Renderer (with graceful fallback to legacy renderer)
       const skyMode = this.getEffectiveSky();
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
-      if (skyMode === 'day') {
-        skyGrad.addColorStop(0, '#1e88e5');
-        skyGrad.addColorStop(0.55, '#38bdf8');
-        skyGrad.addColorStop(1, '#7dd3fc');
-      } else if (skyMode === 'sunset') {
-        skyGrad.addColorStop(0, '#312e81');
-        skyGrad.addColorStop(0.48, '#c2410c');
-        skyGrad.addColorStop(1, '#fb923c');
-      } else {
-        skyGrad.addColorStop(0, '#071426');
-        skyGrad.addColorStop(0.55, '#0d2847');
-        skyGrad.addColorStop(1, '#14385c');
-      }
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(-30, -30, W + 60, H + 60);
       const calm = this._calmFactors();
-      this._renderSkyAtmosphere(ctx, W, H, skyMode, calm);
-
       const px = this._playerWorldX();
       const py = this._playerWorldY();
       const anchorX = this.rig.mode === 'tabletop' ? W * 0.5 : this.player.screenX;
       const anchorY = this.rig.mode === 'tabletop' ? H * this.rig.anchorY : this.player.screenY;
-
-      // 2. Scenery (background only), eased from the bright title look to the calmer combat look
       const tabletopCam = this.rig.mode === 'tabletop';
       const sceneCamX = tabletopCam ? px : W * 0.5 + (this.player.screenX - W * 0.5) * 0.18;
       const sceneCamY = tabletopCam ? py : this.player.worldY;
       this._lane = this._laneFrame(W, H, sceneCamX, sceneCamY, tabletopCam ? anchorX : W * 0.5, tabletopCam ? anchorY : H * 0.5);
-      ctx.save();
-      if (tabletopCam) {
-        ctx.translate(anchorX, anchorY);
-        ctx.rotate(this.player.cameraRoll);
-        ctx.translate(-px, -py);
+
+      if (this.scenery) {
+        const corridorOff = ((this._laneCamX ?? sceneCamX) - sceneCamX) * LANE_PF;
+        this.scenery.render(ctx, {
+          W,
+          H,
+          sky: skyMode,
+          phase: this.phase,
+          time: this.time,
+          scrollDist: -sceneCamY,
+          worldOffsetX: tabletopCam ? sceneCamX : (sceneCamX - W * 0.5),
+          bankAngle: tabletopCam ? this.player.cameraRoll : 0,
+          anchorX: tabletopCam ? anchorX : W * 0.5,
+          anchorY: tabletopCam ? anchorY : H * 0.75,
+          corridorOffset: corridorOff,
+          calm,
+          pureCamera: this.rig.pureCamera,
+          bossActive: Boolean(this.boss),
+          bossEnraged: Boolean(this.boss && this.boss.enraged)
+        });
       } else {
-        // Arcade: the plane moves on a fixed screen, so scroll the scenery with the voyage distance instead
-        ctx.translate(W * 0.5 - sceneCamX, H * 0.5 - sceneCamY);
-      }
-      this._renderParallaxWorld(ctx, sceneCamX, sceneCamY, W, H, skyMode, calm);
-      ctx.restore();
-      this._renderLaneWalls(ctx, skyMode, calm);
-      if (calm.veil > 0.005) {
-        ctx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+        if (skyMode === 'day') {
+          skyGrad.addColorStop(0, '#1e88e5');
+          skyGrad.addColorStop(0.55, '#38bdf8');
+          skyGrad.addColorStop(1, '#7dd3fc');
+        } else if (skyMode === 'sunset') {
+          skyGrad.addColorStop(0, '#312e81');
+          skyGrad.addColorStop(0.48, '#c2410c');
+          skyGrad.addColorStop(1, '#fb923c');
+        } else {
+          skyGrad.addColorStop(0, '#071426');
+          skyGrad.addColorStop(0.55, '#0d2847');
+          skyGrad.addColorStop(1, '#14385c');
+        }
+        ctx.fillStyle = skyGrad;
         ctx.fillRect(-30, -30, W + 60, H + 60);
+        this._renderSkyAtmosphere(ctx, W, H, skyMode, calm);
+        ctx.save();
+        if (tabletopCam) {
+          ctx.translate(anchorX, anchorY);
+          ctx.rotate(this.player.cameraRoll);
+          ctx.translate(-px, -py);
+        } else {
+          ctx.translate(W * 0.5 - sceneCamX, H * 0.5 - sceneCamY);
+        }
+        this._renderParallaxWorld(ctx, sceneCamX, sceneCamY, W, H, skyMode, calm);
+        ctx.restore();
+        this._renderLaneWalls(ctx, skyMode, calm);
+        if (calm.veil > 0.005) {
+          ctx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
+          ctx.fillRect(-30, -30, W + 60, H + 60);
+        }
       }
 
       const applyCam = () => {
@@ -3037,12 +3326,13 @@
         }
       };
 
-      // 3. Mid layer: pickups, enemies, explosions, then our own shots (explosions never hide bullets)
+      // 3. Mid layer: pickups, XP gems & active skill VFX, enemies, explosions, then our own shots
       if (this.phase !== 'title') {
         ctx.save();
         applyCam();
         if (this.phase === 'playing') this._renderHazards(ctx, py, H);
         this._renderPowerups(ctx);
+        if (this.roguelite) this.roguelite.renderWorld(ctx, this.time, px, py);
         this._renderEnemies(ctx, py);
         this._renderParticlesAndWaves(ctx);
         this._renderPlayerBullets(ctx);
@@ -3105,6 +3395,9 @@
       // 6. HUD & Cinematic Story Chapter Banner (only when playing & not pureCamera)
       if (!this.rig.pureCamera && this.phase !== 'title') {
         this._renderMinimalHUD(ctx, W, H);
+        if (this.roguelite && this.phase === 'playing' && !this.boss) {
+          this.roguelite.renderHudBar(ctx, W, H, this.hudTop, this._hudAlpha ?? 1);
+        }
         this._renderBossBar(ctx, W);
         this._renderStoryBanner(ctx, W);
       }
@@ -3402,43 +3695,48 @@
       const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
       const boost = clamp((p.cruiseSpeed - 260) / 320 + this.breath * 0.6, 0, 1);
       const onTitle = this.phase === 'title';
+      const mods = this._mods();
 
       ctx.save();
       ctx.translate(cx, cy);
 
-      // 1. Dynamic Offset Cast Shadow
-      const shOffX = -p.bank * 24 + 8;
-      const shOffY = (onTitle ? 10 : 16) + boost * 10;
-      ctx.save();
-      ctx.translate(shOffX, shOffY);
-      ctx.scale(1.04 - Math.abs(p.bank) * 0.08, 1.04);
-      this._traceRigShapePath(ctx, rw, rl, this.rig.shape);
-      ctx.fillStyle = 'rgba(2, 10, 24, 0.46)';
-      ctx.shadowColor = 'rgba(2, 10, 24, 0.65)';
-      ctx.shadowBlur = 22;
-      ctx.fill();
-      ctx.restore();
-
-      // 2. Twin Mach Afterburner Plumes (gentle idle flame on Title, roaring plume in flight!)
-      const tailY = rl * 0.5 + 2;
-      const swayX = -p.bank * 18;
-      const baseFlame = onTitle ? 20 : (36 + boost * 56);
-      const flameLen = baseFlame * (0.88 + Math.sin(this.time * 42) * 0.12);
-      const engineOffsets = this.rig.shape === 'jet' && rw < 56 ? [0] : [-rw * 0.24, rw * 0.24];
-
-      for (const ex of engineOffsets) {
-        const grad = ctx.createLinearGradient(ex, tailY, ex + swayX, tailY + flameLen);
-        grad.addColorStop(0, '#ffffff');
-        grad.addColorStop(0.28, '#fde047');
-        grad.addColorStop(0.68, 'rgba(234, 88, 12, 0.85)');
-        grad.addColorStop(1, 'rgba(234, 88, 12, 0)');
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(ex - 7, tailY);
-        ctx.quadraticCurveTo(ex + swayX * 0.45, tailY + flameLen * 0.55, ex + swayX, tailY + flameLen);
-        ctx.quadraticCurveTo(ex + swayX * 0.45, tailY + flameLen * 0.55, ex + 7, tailY);
+      if (global.SkyAircraftRenderer && global.SkyAircraftRenderer.drawTabletopRig) {
+        const sinceFull = this.fullChargeAt !== null && this.fullChargeAt !== undefined ? this.time - this.fullChargeAt : -1;
+        const perfWin = 0.45 * mods.railPerfectWindowMult;
+        const inWindow = sinceFull >= 0 && sinceFull <= perfWin;
+        const overheat = sinceFull > perfWin;
+        global.SkyAircraftRenderer.drawTabletopRig(ctx, {
+          shape: this.rig.shape,
+          width: rw,
+          length: rl,
+          bank: p.bank,
+          phase: this.phase,
+          calibOpen: this.calibDrawerOpen,
+          pureCamera: this.rig.pureCamera,
+          weaponLv: p.weaponLv,
+          shield: p.shield,
+          invincible: p.invulnTimer > 0,
+          rollTimer: p.rollTimer,
+          breath: this.breath,
+          railCharge: charge,
+          railPerfect: inWindow,
+          railOvercharge: overheat,
+          muzzleFlash: !onTitle && p.fireCooldown > 0.065,
+          drawRailSphere: false,
+          time: this.time,
+          evoTier: mods.evoTier
+        });
+      } else {
+        // Legacy fallback shadow + flames
+        const shOffX = -p.bank * 24 + 8;
+        const shOffY = (onTitle ? 10 : 16) + boost * 10;
+        ctx.save();
+        ctx.translate(shOffX, shOffY);
+        ctx.scale(1.04 - Math.abs(p.bank) * 0.08, 1.04);
+        this._traceRigShapePath(ctx, rw, rl, this.rig.shape);
+        ctx.fillStyle = 'rgba(2, 10, 24, 0.46)';
         ctx.fill();
+        ctx.restore();
       }
 
       // 3. Muzzle Flash & Railgun Charge Sphere
@@ -3618,86 +3916,47 @@
 
     _renderVirtualFighter(ctx, sx, sy) {
       const p = this.player;
-      const bankScale = 1 - Math.abs(p.bank) * 0.28;
+      const mods = this._mods();
+      const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
+      const sinceFull = this.fullChargeAt !== null && this.fullChargeAt !== undefined ? this.time - this.fullChargeAt : -1;
+      const perfWin = 0.45 * mods.railPerfectWindowMult;
+      const inWindow = sinceFull >= 0 && sinceFull <= perfWin;
+      const overheat = sinceFull > perfWin;
+
       ctx.save();
       ctx.translate(sx, sy);
 
-      // Shadow beneath virtual fighter too
-      ctx.fillStyle = 'rgba(2, 10, 24, 0.3)';
-      ctx.beginPath();
-      ctx.ellipse(-p.bank * 14 + 6, 18, 24 * bankScale, 16, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (p.invulnTimer > 0 && this.phase === 'playing') {
-        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.45 + Math.sin(this.time * 25) * 0.25).toFixed(2)})`;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(0, 0, 34, 0, Math.PI * 2);
-        ctx.stroke();
+      if (global.SkyAircraftRenderer && global.SkyAircraftRenderer.drawVirtualPlayer) {
+        global.SkyAircraftRenderer.drawVirtualPlayer(ctx, {
+          shape: this.rig.shape,
+          width: 82,
+          length: 96,
+          bank: p.bank,
+          rollTimer: p.rollTimer,
+          rollDuration: 0.62,
+          weaponLv: p.weaponLv,
+          hpRatio: clamp(p.hp / Math.max(1, p.maxHp), 0, 1),
+          shield: p.shield,
+          invincible: p.invulnTimer > 0 && this.phase === 'playing',
+          breath: this.breath,
+          railCharge: this.phase === 'playing' ? charge : 0,
+          railPerfect: inWindow,
+          railOvercharge: overheat,
+          time: this.time,
+          evoTier: mods.evoTier
+        });
       }
-
-      const fLen = 24 + Math.sin(this.time * 45) * 5;
-      for (const ex of [-9, 9]) {
-        const g = ctx.createLinearGradient(ex, 20, ex, 20 + fLen);
-        g.addColorStop(0, '#ffffff');
-        g.addColorStop(0.4, '#fde047');
-        g.addColorStop(1, 'rgba(234, 88, 12, 0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.moveTo(ex - 4, 18);
-        ctx.lineTo(ex, 20 + fLen);
-        ctx.lineTo(ex + 4, 18);
-        ctx.fill();
-      }
-
-      ctx.save();
-      ctx.scale(bankScale, 1);
-      ctx.rotate(p.bank * 0.14);
-
-      ctx.fillStyle = '#f1f5f9';
-      ctx.strokeStyle = '#0b1220';
-      ctx.lineWidth = 2.4;
-      ctx.lineJoin = 'round';
-      ctx.shadowColor = 'rgba(56, 189, 248, 0.55)';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.moveTo(0, -30);
-      ctx.lineTo(32, 12);
-      ctx.lineTo(26, 20);
-      ctx.lineTo(10, 14);
-      ctx.lineTo(8, 24);
-      ctx.lineTo(-8, 24);
-      ctx.lineTo(-10, 14);
-      ctx.lineTo(-26, 20);
-      ctx.lineTo(-32, 12);
-      ctx.closePath();
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ea580c';
-      ctx.beginPath();
-      ctx.moveTo(-24, 12); ctx.lineTo(-11, -3); ctx.lineTo(-11, 6); ctx.lineTo(-21, 16); ctx.closePath();
-      ctx.moveTo(24, 12); ctx.lineTo(11, -3); ctx.lineTo(11, 6); ctx.lineTo(21, 16); ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = '#0284c7';
-      ctx.beginPath();
-      ctx.ellipse(0, -6, 4.5, 11, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
 
       this._drawDroneFormation(ctx);
       this._drawSatellite(ctx);
       this._drawShieldBubble(ctx, 46);
       this._drawHitCore(ctx);
 
-      const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
-      if (this.phase === 'playing' && charge > 0.05) {
-        ctx.fillStyle = '#67e8f9';
-        ctx.beginPath();
-        ctx.arc(0, -34, 6 + charge * 14, 0, Math.PI * 2);
-        ctx.fill();
+      if (this.phase === 'playing' && charge > 0.05 && (inWindow || overheat)) {
+        ctx.font = '800 13px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = inWindow ? '#fef08a' : '#fca5a5';
+        ctx.fillText(inWindow ? '松手！' : '过热', 0, -56);
       }
 
       ctx.restore();
@@ -3798,11 +4057,24 @@
 
     _drawDroneFormation(ctx) {
       const p = this.player;
+      const mods = this._mods();
       this._droneSlots().forEach((slot, k) => {
         const dir = slot.x < 0 ? -1 : 1;
         const dx = slot.x - p.bank * 10;
         const dy = slot.y + Math.sin(this.time * 5 + k) * 4 + dir * p.bank * 8;
-        this._drawBitDrone(ctx, dx, dy);
+        if (global.SkyAircraftRenderer && global.SkyAircraftRenderer.drawDrone) {
+          global.SkyAircraftRenderer.drawDrone(ctx, {
+            x: dx,
+            y: dy,
+            index: k,
+            bank: p.bank,
+            time: this.time,
+            hasLightning: mods.hasLightning,
+            weaponLv: p.weaponLv
+          });
+        } else {
+          this._drawBitDrone(ctx, dx, dy);
+        }
       });
     }
 
@@ -3910,7 +4182,13 @@
         }
 
         if (e.isBoss) {
-          this._renderBoss(ctx, e, flash, engineGlow, poly);
+          if (global.SkyAircraftRenderer && global.SkyAircraftRenderer.drawBoss) {
+            global.SkyAircraftRenderer.drawBoss(ctx, e, { time: this.time, def: BOSS_DEFS[e.bossKind] });
+          } else {
+            this._renderBoss(ctx, e, flash, engineGlow, poly);
+          }
+        } else if (global.SkyAircraftRenderer && global.SkyAircraftRenderer.drawEnemy) {
+          global.SkyAircraftRenderer.drawEnemy(ctx, e, { time: this.time });
         } else if (e.type === 'gunship') {
           engineGlow(-14, -26, 12 * flick, '#fb923c');
           engineGlow(14, -26, 12 * flick, '#fb923c');

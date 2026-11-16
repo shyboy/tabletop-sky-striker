@@ -566,8 +566,7 @@
     dialog::backdrop {
       overflow: hidden;
       overscroll-behavior: contain;
-      background: rgba(2, 6, 18, 0.72);
-      backdrop-filter: blur(4px);
+      background: rgba(3, 8, 20, 0.92);
     }
 
     .dlg-head {
@@ -631,6 +630,97 @@
       color: var(--amber);
       line-height: 1.4;
     }
+
+    .xp-track {
+      block-size: 5px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      overflow: hidden;
+      margin-top: 4px;
+    }
+
+    .xp-fill {
+      block-size: 100%;
+      inline-size: 0%;
+      background: linear-gradient(90deg, #38bdf8, #a78bfa, #fde047);
+      transition: inline-size 0.18s ease;
+    }
+
+    /* Remote 3-Pick-1 Skill Draft Dialog on Phone Cockpit */
+    #skill-draft-dialog {
+      margin: auto;
+      padding: 0;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 1.1rem;
+      background: linear-gradient(175deg, rgba(11, 24, 46, 0.97), rgba(6, 13, 28, 0.99));
+      color: var(--text-hi);
+      inline-size: min(94vw, 420px);
+      max-block-size: 90dvh;
+      transform: translateZ(0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      outline: none;
+    }
+
+    .c-draft-body {
+      padding: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      overflow-y: auto;
+      max-block-size: 88dvh;
+    }
+
+    .c-draft-card {
+      appearance: none;
+      text-align: left;
+      border-radius: 0.85rem;
+      border: 1.5px solid var(--c-accent, #38bdf8);
+      background: rgba(15, 28, 50, 0.9);
+      color: #f8fafc;
+      padding: 0.65rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.26rem;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+      transform: translateZ(0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      outline: none;
+    }
+
+    .c-draft-card:active {
+      transform: scale(0.98);
+    }
+
+    .c-draft-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+
+    .c-draft-name {
+      font-size: 0.92rem;
+      font-weight: 800;
+      color: #ffffff;
+    }
+
+    .c-draft-badge {
+      font-size: 0.68rem;
+      font-weight: 800;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      border: 1px solid var(--c-accent, #38bdf8);
+      color: var(--c-accent, #38bdf8);
+    }
+
+    .c-draft-desc {
+      font-size: 0.76rem;
+      color: #cbd5e1;
+      line-height: 1.38;
+    }
   </style>
 </head>
 <body>
@@ -668,10 +758,13 @@
           <div class="chapter-line" id="chapter-label">借风计划 · 把玩具放进停机坪</div>
           <div class="stats-strip">
             <span id="score-text">0000000</span>
-            <span id="lv-text" style="color:#38bdf8;">火力 Lv.1</span>
+            <span id="lv-text" style="color:#7dd3fc;">Lv.1 · 火力1</span>
           </div>
           <div class="hp-track" aria-label="战机护盾">
             <div id="hp-fill" class="hp-fill"></div>
+          </div>
+          <div class="xp-track" aria-label="升级经验条">
+            <div id="xp-fill" class="xp-fill"></div>
           </div>
         </div>
 
@@ -760,6 +853,18 @@
         <input type="checkbox" id="c-god">
         <span>亲子无敌护航（不爆机）</span>
       </label>
+    </div>
+  </dialog>
+
+  <!-- Remote 3-Pick-1 Skill Evolution Draft Dialog -->
+  <dialog id="skill-draft-dialog" closedby="none" aria-labelledby="c-draft-title">
+    <div class="c-draft-body">
+      <div style="text-align:center;">
+        <div style="font-size:0.68rem;font-weight:800;color:#38bdf8;letter-spacing:0.1em;">LEVEL UP · 战术进化</div>
+        <h2 id="c-draft-title" style="font-size:1.05rem;margin-top:2px;">⚡ 选择一项核心技能</h2>
+      </div>
+      <div id="c-draft-list" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
+      <button type="button" id="c-draft-reroll" class="mini-btn" style="padding:0.5rem;font-size:0.8rem;">🎲 换一批 (剩余 2)</button>
     </div>
   </dialog>
 
