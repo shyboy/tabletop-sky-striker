@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <script src="./js/no-zoom.js"></script>
   <title>借风座舱手柄 · 桌面飞机大战</title>
   <style>
     :root {
@@ -30,6 +31,12 @@
 
     *, *::before, *::after {
       box-sizing: border-box;
+    }
+
+    /* No double-tap / pinch zoom anywhere (see js/no-zoom.js for iOS) */
+    html, body, button, a, label, summary, input, select, [role="button"] {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
 
     [hidden] {
@@ -195,6 +202,47 @@
       justify-content: space-between;
       gap: 0.38rem;
       min-inline-size: 0;
+    }
+
+    .c-coach {
+      position: fixed;
+      z-index: 30;
+      top: calc(env(safe-area-inset-top, 0px) + 3.3rem);
+      left: 0.5rem;
+      right: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      padding: 0.45rem 0.7rem;
+      border-radius: 0.75rem;
+      background: rgba(8, 20, 38, 0.92);
+      border: 1px solid rgba(253, 224, 71, 0.55);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
+    .c-coach strong {
+      color: #fde047;
+      font-size: 0.8rem;
+    }
+
+    .c-coach.tip {
+      border-color: rgba(125, 211, 252, 0.5);
+    }
+
+    .c-coach.tip strong {
+      color: #bae6fd;
+    }
+
+    .coach-target {
+      animation: coachTarget 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes coachTarget {
+      from { box-shadow: 0 0 0 0 rgba(253, 224, 71, 0.75); outline: 2px solid rgba(253, 224, 71, 0.9); }
+      to { box-shadow: 0 0 0 12px rgba(253, 224, 71, 0); outline: 2px solid rgba(253, 224, 71, 0.4); }
     }
 
     .chapter-line {
@@ -601,6 +649,12 @@
         <button type="button" id="btn-calib" class="mini-btn">校准底座</button>
       </div>
     </header>
+
+    <!-- Tutorial step / first-time tip mirrored from the big screen -->
+    <div id="c-coach" class="c-coach" hidden aria-live="polite">
+      <strong id="c-coach-title"></strong>
+      <span id="c-coach-text"></span>
+    </div>
 
     <!-- 2. MFD Tactical Radar & Sensors -->
     <section class="mfd-bay" aria-label="战术雷达与传感器">

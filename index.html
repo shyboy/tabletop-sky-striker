@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <script src="./js/no-zoom.js"></script>
   <title>借风计划 · 桌面飞机大战（双屏虚实互动版）</title>
   <style>
     :root {
@@ -31,6 +32,12 @@
 
     *, *::before, *::after {
       box-sizing: border-box;
+    }
+
+    /* No double-tap / pinch zoom anywhere (see js/no-zoom.js for iOS) */
+    html, body, button, a, label, summary, input, select, [role="button"] {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
 
     [hidden] {
@@ -213,7 +220,7 @@
     /* ===================== TITLE SCREEN OVERLAY ===================== */
     #title-overlay {
       position: fixed;
-      top: clamp(3.3rem, 6.2dvh, 4.8rem);
+      top: max(3.9rem, calc(env(safe-area-inset-top, 0px) + 3.6rem));
       left: 50%;
       transform: translateX(-50%);
       z-index: 14;
@@ -325,6 +332,13 @@
       flex-wrap: wrap;
       gap: 0.55rem;
       align-items: center;
+      /* The launch button stays in view even when the briefing has to scroll on small phones */
+      position: sticky;
+      bottom: calc(-1 * clamp(0.95rem, 2dvh, 1.4rem));
+      z-index: 1;
+      margin-inline: calc(-1 * clamp(1rem, 2.5vw, 1.65rem));
+      padding: 0.55rem clamp(1rem, 2.5vw, 1.65rem);
+      background: linear-gradient(180deg, rgba(10, 25, 48, 0) 0%, rgba(10, 25, 48, 0.94) 22%);
     }
 
     .cta-launch {
@@ -964,6 +978,373 @@
         display: none;
       }
     }
+
+    /* ===================== IN-FLIGHT DECLUTTER ===================== */
+    /* While flying, the toolbar shrinks to a single round pause button */
+    body.phase-playing .top-bar .tb-menu {
+      display: none;
+    }
+
+    .pause-fab {
+      position: relative;
+      inline-size: 44px;
+      block-size: 44px;
+      border-radius: 50%;
+      border: 1px solid rgba(148, 163, 184, 0.32);
+      background: rgba(10, 22, 40, 0.45);
+      backdrop-filter: blur(6px);
+      color: #f8fafc;
+      font-size: 1.05rem;
+      display: inline-grid;
+      place-items: center;
+      cursor: pointer;
+      opacity: 0.78;
+      transition: opacity 0.15s, background-color 0.15s;
+    }
+
+    .pause-fab:hover,
+    .pause-fab:focus-visible {
+      opacity: 1;
+      background: rgba(14, 34, 62, 0.85);
+    }
+
+    .fab-dot {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      inline-size: 7px;
+      block-size: 7px;
+      border-radius: 50%;
+      background: #f59e0b;
+    }
+
+    .fab-dot.connected {
+      background: var(--accent-green);
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(8.2rem, 1fr));
+      gap: 0.4rem;
+    }
+
+    .quick-btn {
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      background: rgba(30, 41, 59, 0.7);
+      color: #e2e8f0;
+      border-radius: 0.6rem;
+      padding: 0.45rem 0.5rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .quick-btn:hover {
+      border-color: var(--accent-cyan);
+    }
+
+    #pause-overlay .state-card {
+      max-block-size: calc(100dvh - 2rem);
+      overflow-y: auto;
+    }
+
+    /* ===================== COACH CARD (tutorial & tips) ===================== */
+    .coach-card {
+      position: fixed;
+      z-index: 13;
+      left: 50%;
+      bottom: max(0.6rem, env(safe-area-inset-bottom, 0px));
+      transform: translateX(-50%);
+      inline-size: min(27rem, calc(100dvw - 1.5rem));
+      background: rgba(8, 20, 38, 0.72);
+      border: 1px solid rgba(253, 224, 71, 0.45);
+      border-radius: 0.9rem;
+      padding: 0.5rem 0.75rem 0.55rem;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+      animation: coachIn 0.25s ease-out;
+    }
+
+    .coach-card.tip {
+      border-color: rgba(125, 211, 252, 0.45);
+    }
+
+    body.has-dock .coach-card {
+      inline-size: min(27rem, calc(100dvw - 11rem));
+    }
+
+    /* Landscape: tuck the card under the HUD on the left */
+    .coach-card.side,
+    body.has-dock .coach-card.side {
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      bottom: auto;
+      top: var(--coach-top, 6rem);
+      transform: none;
+      inline-size: min(17rem, 32dvw);
+    }
+
+    .coach-card.top,
+    body.has-dock .coach-card.top {
+      bottom: auto;
+      top: var(--coach-top, 6rem);
+      inline-size: min(27rem, calc(100dvw - 1.5rem));
+    }
+
+    @keyframes coachIn {
+      from { opacity: 0; translate: 0 8px; }
+      to { opacity: 1; translate: 0 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .coach-card { animation: none; }
+    }
+
+    .coach-head {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      font-size: 0.86rem;
+    }
+
+    .coach-head strong {
+      color: #fde047;
+    }
+
+    .coach-card.tip .coach-head strong {
+      color: #e0f2fe;
+    }
+
+    .coach-badge {
+      font-size: 0.68rem;
+      font-weight: 800;
+      color: #0f172a;
+      background: #fde047;
+      border-radius: 999px;
+      padding: 0.08rem 0.45rem;
+    }
+
+    .coach-card.tip .coach-badge {
+      background: #7dd3fc;
+    }
+
+    .coach-progress {
+      font: 800 0.8rem ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #86efac;
+    }
+
+    .coach-skip {
+      margin-inline-start: auto;
+      pointer-events: auto;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 23, 42, 0.6);
+      color: #cbd5e1;
+      border-radius: 999px;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.72rem;
+      cursor: pointer;
+      min-block-size: 30px;
+    }
+
+    .coach-goal,
+    .coach-how {
+      margin: 0.2rem 0 0;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: #f1f5f9;
+    }
+
+    .coach-how {
+      color: #bae6fd;
+      font-size: 0.76rem;
+    }
+
+    body.pure-camera .coach-card,
+    body.pure-camera .touch-dock {
+      display: none !important;
+    }
+
+    /* ===================== TOUCH ACTION DOCK ===================== */
+    .touch-dock {
+      position: fixed;
+      inset: auto 0 0 0;
+      z-index: 12;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding: 0 max(0.6rem, env(safe-area-inset-right, 0px)) max(0.6rem, env(safe-area-inset-bottom, 0px)) max(0.6rem, env(safe-area-inset-left, 0px));
+      pointer-events: none;
+    }
+
+    .dock-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .dock-btn {
+      pointer-events: auto;
+      inline-size: 62px;
+      block-size: 62px;
+      border-radius: 50%;
+      border: 1px solid rgba(186, 230, 253, 0.45);
+      background: rgba(10, 22, 40, 0.42);
+      backdrop-filter: blur(4px);
+      color: #f8fafc;
+      font-size: 1.35rem;
+      line-height: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .dock-btn small {
+      font-size: 0.58rem;
+      font-weight: 700;
+      color: #cbd5e1;
+    }
+
+    .dock-btn.small {
+      inline-size: 48px;
+      block-size: 48px;
+      font-size: 1.05rem;
+    }
+
+    .dock-btn.cooling {
+      opacity: 0.45;
+    }
+
+    .dock-btn.charging {
+      border-color: #a5f3fc;
+      background: rgba(14, 116, 144, 0.6);
+    }
+
+    .dock-btn.pulse,
+    .quick-btn.pulse {
+      animation: dockPulse 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes dockPulse {
+      from { box-shadow: 0 0 0 0 rgba(253, 224, 71, 0.7); border-color: #fde047; }
+      to { box-shadow: 0 0 0 10px rgba(253, 224, 71, 0); border-color: #fde047; }
+    }
+
+    /* ===================== HELP ===================== */
+    #help-overlay {
+      z-index: 24; /* above the floating toolbar */
+    }
+
+    .help-card {
+      inline-size: min(42rem, calc(100dvw - 1.5rem));
+      max-block-size: calc(100dvh - 2rem);
+      overflow-y: auto;
+      gap: 0.75rem;
+    }
+
+    .help-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .help-sec h3 {
+      font-size: 0.9rem;
+      color: #fde047;
+      margin-block-end: 0.35rem;
+    }
+
+    .help-sec p {
+      margin: 0;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      color: #e2e8f0;
+    }
+
+    .help-sec strong {
+      color: #fde68a;
+    }
+
+    .help-table {
+      inline-size: 100%;
+      border-collapse: collapse;
+      font-size: 0.74rem;
+      color: #e2e8f0;
+    }
+
+    .help-table th,
+    .help-table td {
+      text-align: left;
+      padding: 0.3rem 0.35rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      vertical-align: top;
+    }
+
+    .help-table th {
+      color: #94a3b8;
+      font-weight: 700;
+    }
+
+    @media (max-width: 560px) {
+      .help-table th:nth-child(3),
+      .help-table td:nth-child(3) {
+        display: none;
+      }
+    }
+
+    .help-grid,
+    .help-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+      gap: 0.45rem 0.8rem;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      line-height: 1.4;
+    }
+
+    .help-grid li {
+      display: grid;
+      grid-template-columns: 2rem 1fr;
+      column-gap: 0.5rem;
+      align-items: start;
+    }
+
+    .help-grid b,
+    .help-list b {
+      color: #f8fafc;
+      margin-inline-end: 0.35rem;
+    }
+
+    .pw-ico {
+      grid-row: span 2;
+      inline-size: 2rem;
+      block-size: 2rem;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      color: var(--c);
+      background: rgba(15, 23, 42, 0.9);
+      border: 2px solid var(--c);
+      border-radius: 0.55rem;
+    }
+
+    .pw-ico.star {
+      clip-path: none;
+      border: none;
+      background: none;
+      font-size: 1.5rem;
+    }
   </style>
 </head>
 <body>
@@ -971,32 +1352,46 @@
     <canvas id="game-canvas" aria-label="借风计划桌面飞机大战主战场"></canvas>
 
     <!-- Floating Quick Toolbar -->
+    <!-- Title / summary: a few settings. In flight: only a round pause button (everything else lives in the pause menu) -->
     <div class="top-bar" role="toolbar" aria-label="战场快捷控制">
-      <button type="button" id="btn-open-calib" class="pill-btn amber" aria-label="打开侧边底座尺寸校准面板">
-        🎯 校准底座
-      </button>
-      <button type="button" id="btn-open-setup" class="pill-btn primary">
+      <button type="button" id="btn-open-setup" class="pill-btn primary tb-menu">
         <span id="conn-dot" class="status-dot" aria-hidden="true"></span>
         <span id="conn-text">手机扫码遥控</span>
       </button>
-      <button type="button" id="btn-pause" class="pill-btn" hidden aria-label="暂停或继续航程">
-        ⏸ 暂停 (P)
-      </button>
-      <button type="button" id="btn-stop" class="pill-btn danger" hidden aria-label="停止当前航程并返回主界面">
-        ⏹ 停止返航
-      </button>
-      <button type="button" id="btn-toggle-mode" class="pill-btn" aria-label="切换实体压屏模式与纯屏虚拟战机模式">
-        <span id="mode-btn-label">模式：实体压屏 (动背景)</span>
-      </button>
-      <button type="button" id="btn-sky-theme" class="pill-btn" aria-label="切换天空光影主题">
+      <button type="button" id="btn-sky-theme" class="pill-btn tb-menu" aria-label="切换天空光影主题">
         背景：随剧情
       </button>
-      <button type="button" id="btn-pure-camera" class="pill-btn" aria-label="开启实拍纯净画面（隐藏界面文字）">
-        实拍纯净
-      </button>
-      <button type="button" id="btn-mute" class="pill-btn" aria-label="切换音效开关">
+      <button type="button" id="btn-mute" class="pill-btn tb-menu" aria-label="切换音效开关">
         音效：开
       </button>
+      <button type="button" id="btn-pause" class="pause-fab" hidden aria-label="暂停 (P)：设置、校准与返航都在这里" title="暂停 (P)">
+        <span aria-hidden="true">⏸</span>
+        <span id="pause-fab-dot" class="fab-dot" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <!-- Coach card: tutorial steps & one-time tips, kept off the centre of the battlefield -->
+    <aside id="coach-card" class="coach-card" hidden aria-live="polite">
+      <div class="coach-head">
+        <span id="coach-badge" class="coach-badge">新手引导</span>
+        <strong id="coach-title"></strong>
+        <span id="coach-progress" class="coach-progress"></span>
+        <button type="button" id="coach-skip" class="coach-skip">跳过引导</button>
+      </div>
+      <p id="coach-goal" class="coach-goal"></p>
+      <p id="coach-how" class="coach-how"></p>
+    </aside>
+
+    <!-- On-screen actions for touchscreens without a phone cockpit -->
+    <div id="touch-dock" class="touch-dock" hidden>
+      <div class="dock-col dock-left">
+        <button type="button" id="dock-roll" class="dock-btn small" aria-label="翻滚躲弹">🌀<small>翻滚</small></button>
+        <button type="button" id="dock-gust" class="dock-btn" aria-label="顺风">💨<small>顺风</small></button>
+      </div>
+      <div class="dock-col dock-right">
+        <button type="button" id="dock-nuke" class="dock-btn small" aria-label="战术核弹">☢<small id="dock-nuke-n">×1</small></button>
+        <button type="button" id="dock-rail" class="dock-btn" aria-label="按住蓄力磁轨炮，松手发射">⚡<small>按住蓄力</small></button>
+      </div>
     </div>
 
     <button type="button" id="wake-camera-btn" aria-label="退出实拍纯净模式并恢复工具栏">
@@ -1059,6 +1454,9 @@
         </button>
         <button type="button" id="btn-title-setup" class="cta-secondary">
           📱 手机扫码遥控
+        </button>
+        <button type="button" id="btn-title-help" class="cta-secondary">
+          📖 玩法说明
         </button>
       </div>
 
@@ -1129,9 +1527,21 @@
           </div>
         </div>
 
+        <div class="quick-grid" role="group" aria-label="快捷设置">
+          <button type="button" id="btn-toggle-mode" class="quick-btn">
+            <span id="mode-btn-label">模式：实体压屏</span>
+          </button>
+          <button type="button" id="pc-sky" class="quick-btn">背景：随剧情</button>
+          <button type="button" id="pc-mute" class="quick-btn">音效：开</button>
+          <button type="button" id="btn-pure-camera" class="quick-btn" title="隐藏全部界面，方便拍视频（H 键恢复）">📷 实拍纯净</button>
+          <button type="button" id="btn-pause-setup" class="quick-btn">🎯 校准底座</button>
+          <button type="button" id="pc-pair" class="quick-btn">📱 手机扫码</button>
+          <button type="button" id="pc-help" class="quick-btn">📖 玩法说明</button>
+          <button type="button" id="pc-skip-tutorial" class="quick-btn" hidden>⏭ 跳过新手引导</button>
+        </div>
+
         <div class="action-stack">
           <button type="button" id="btn-resume" class="btn-block primary">▶ 继续飞行 (P / Esc)</button>
-          <button type="button" id="btn-pause-setup" class="btn-block">🎯 校准实物底座 / 手机扫码</button>
           <button type="button" id="btn-pause-stop" class="btn-block danger">⏹ 停止任务 · 返回主界面</button>
         </div>
       </div>
@@ -1190,6 +1600,70 @@
           <button type="button" id="btn-relaunch" class="btn-block primary">↻ 再次点火升空 (Enter / R)</button>
           <button type="button" id="btn-flight-card" class="btn-block">📸 生成航程纪念卡</button>
           <button type="button" id="btn-go-title" class="btn-block">⏹ 返回桌面停机坪（主界面）</button>
+        </div>
+      </div>
+    </section>
+    <!-- 4. How-to-play guide -->
+    <section id="help-overlay" class="state-overlay" hidden aria-labelledby="help-heading">
+      <div class="state-card help-card themed-scroller">
+        <div class="help-top">
+          <h2 id="help-heading">📖 玩法说明</h2>
+          <button type="button" id="btn-help-close" class="close-btn">关闭 (Esc)</button>
+        </div>
+
+        <section class="help-sec">
+          <h3>目标</h3>
+          <p>飞完三幕航段，每一幕后半段会出现<strong>封锁舰 Boss</strong>（左上角的金色进度条走满时到来）。中途会有<strong>补给空投</strong>，每打败一艘封锁舰，机体都会<strong>永久强化</strong>：耐久上限、僚机、核弹，火力上限也会提高一级。</p>
+        </section>
+
+        <section class="help-sec">
+          <h3>操作</h3>
+          <table class="help-table">
+            <thead><tr><th>动作</th><th>📱 手机座舱</th><th>👆 触屏</th><th>⌨️ 键盘 / 🎮 手柄</th></tr></thead>
+            <tbody>
+              <tr><td>移动 · 自动开火</td><td>摇杆 / 体感倾斜</td><td>按住画面拖动</td><td>WASD · 方向键 / 左摇杆</td></tr>
+              <tr><td>💨 顺风</td><td>对麦克风吹气 / 顺风键</td><td>左下「顺风」</td><td>F（按住＝轻吹）/ □·X</td></tr>
+              <tr><td>⚡ 磁轨炮</td><td>下拉拉栓后松手</td><td>按住右下「磁轨」</td><td>按住 Shift·J / L2</td></tr>
+              <tr><td>☢ 核弹</td><td>大圆按钮</td><td>右下「☢」</td><td>K / ○·B</td></tr>
+              <tr><td>🌀 翻滚</td><td>后拉手机 / 翻滚键</td><td>左下「翻滚」</td><td>Space / L1·R1</td></tr>
+              <tr><td>⏸ 暂停 · 设置</td><td>暂停键</td><td>右上角 ⏸</td><td>P · Esc / Start</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="help-sec">
+          <h3>道具</h3>
+          <ul class="help-grid">
+            <li><span class="pw-ico" style="--c:#38bdf8">P</span><b>火力升级</b>子弹更多更强；每一幕的上限更高一级（左上角暗格＝本幕还能升）</li>
+            <li><span class="pw-ico" style="--c:#67e8f9">S</span><b>能量护盾</b>抵挡一次伤害，最多两层</li>
+            <li><span class="pw-ico" style="--c:#6ee7b7">D</span><b>浮游僚机</b>两侧自动瞄准开火，最多 4 架</li>
+            <li><span class="pw-ico" style="--c:#4ade80">+</span><b>机体修复</b>恢复 30% 耐久</li>
+            <li><span class="pw-ico" style="--c:#fb923c">N</span><b>战术核弹</b>+1 枚，最多 3 枚；击落 48 架也会自动充能</li>
+            <li><span class="pw-ico star" style="--c:#facc15">★</span><b>金星连锁</b>连续拾取越来越值钱（100→1000），漏掉或受伤重置</li>
+          </ul>
+        </section>
+
+        <section class="help-sec">
+          <h3>敌机（按出场顺序）</h3>
+          <ul class="help-list">
+            <li><b>侦察机</b>成群飞来、瞄准射击</li>
+            <li><b>炮艇</b>三发扇形弹，必掉道具</li>
+            <li><b>冲锋枪骑</b>先对准再直线冲刺，看到它停顿就横移</li>
+            <li><b>浮空水雷</b>靠近会爆成一圈子弹，远远打掉</li>
+            <li><b>织云机</b>（第二幕）侧面蛇形编队</li>
+            <li><b>轰炸机</b>（第二幕）沿途丢水雷，掉护盾和僚机</li>
+            <li><b>哨塔</b>（第三幕）停在空中旋转喷弹幕，用磁轨炮速拆</li>
+          </ul>
+        </section>
+
+        <section class="help-sec">
+          <h3>受伤与 Boss 弱点</h3>
+          <p>只有机身中央的<strong>红白判定点</strong>碰到子弹才算受伤，擦过机身没事。灰雾封锁舰：吹顺风吹散护甲再打；风暴铁幕舰：顺风能把闪电吹偏；深空母舰：护航机出舱时吹气，把它们倒吹回机库。磁轨炮拉满后立刻松手＝<strong>完美蓄力</strong>，专克狂暴核心。</p>
+        </section>
+
+        <div class="action-stack">
+          <button type="button" id="btn-help-tutorial" class="btn-block primary">🎓 带我飞一次新手引导</button>
+          <button type="button" id="btn-help-reset-tips" class="btn-block">💡 重新显示首次提示</button>
         </div>
       </div>
     </section>
@@ -1363,7 +1837,6 @@
       const remoteCalibBanner = document.getElementById('remote-calib-banner');
       const setupPauseIndicator = document.getElementById('setup-pause-indicator');
 
-      const btnOpenCalib = document.getElementById('btn-open-calib');
       const btnOpenSetup = document.getElementById('btn-open-setup');
       const btnDockSide = document.getElementById('btn-dock-side');
       const tabBtnCalib = document.getElementById('tab-btn-calib');
@@ -1373,7 +1846,6 @@
       const btnCalibGo = document.getElementById('btn-calib-go');
 
       const btnPause = document.getElementById('btn-pause');
-      const btnStop = document.getElementById('btn-stop');
       const btnToggleMode = document.getElementById('btn-toggle-mode');
       const btnSkyTheme = document.getElementById('btn-sky-theme');
       const btnPureCamera = document.getElementById('btn-pure-camera');
@@ -1438,6 +1910,83 @@
         orb: '🧿 守护型：自带环绕护卫球拦截子弹，顺风充能更快'
       };
 
+      // ===== Coach card (tutorial & first-time tips), touch dock and help =====
+      let lastState = null;
+      let lastCoach = null;
+      let controllerOnline = false;
+      const coarsePointer = Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+      const coachCard = document.getElementById('coach-card');
+      const coachBadge = document.getElementById('coach-badge');
+      const coachTitle = document.getElementById('coach-title');
+      const coachProgress = document.getElementById('coach-progress');
+      const coachSkip = document.getElementById('coach-skip');
+      const coachGoal = document.getElementById('coach-goal');
+      const coachHow = document.getElementById('coach-how');
+      const touchDock = document.getElementById('touch-dock');
+      const helpOverlay = document.getElementById('help-overlay');
+      const DOCK_TARGETS = { wind: 'dock-gust', rail: 'dock-rail', nuke: 'dock-nuke' };
+
+      function renderCoach(c) {
+        lastCoach = c;
+        const show = Boolean(c && lastState && lastState.phase === 'playing');
+        coachCard.hidden = !show;
+        document.querySelectorAll('.dock-btn').forEach((b) => {
+          b.classList.toggle('pulse', Boolean(show && c.kind === 'tutorial' && DOCK_TARGETS[c.target] === b.id));
+        });
+        if (!show) return;
+        const tut = c.kind === 'tutorial';
+        coachCard.classList.toggle('tip', !tut);
+        coachBadge.textContent = tut ? `新手引导 ${c.step}/${c.total}` : '💡 新发现';
+        coachTitle.textContent = tut ? c.title : `${c.icon} ${c.title}`;
+        coachProgress.textContent = c.progress || '';
+        coachSkip.hidden = !tut || c.id === 'done';
+        coachGoal.textContent = tut ? c.goal : c.text;
+        coachHow.hidden = !tut;
+        if (tut) {
+          // Explain with whatever is actually in the player's hands
+          coachHow.textContent = controllerOnline ? `📱 ${c.phone}` : (coarsePointer ? `👆 ${c.touch}` : `⌨️ ${c.keys}`);
+        }
+        syncCoachPlacement();
+      }
+
+      // Keep the card off the toy and out of the centre lane
+      function syncCoachPlacement() {
+        coachCard.classList.remove('side', 'top');
+        if (coachCard.hidden) return;
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+        const hudTop = engine ? engine.hudTop : 12;
+        coachCard.style.setProperty('--coach-top', `${hudTop + 96}px`);
+        if (W > H * 1.2) {
+          coachCard.classList.add('side');
+          return;
+        }
+        if (lastState && lastState.mode === 'tabletop') {
+          const toyBottom = H * lastState.anchorY + lastState.length * 0.5 + 20;
+          if (H - toyBottom < (coachCard.offsetHeight || 90) + 12) coachCard.classList.add('top');
+        }
+      }
+
+      function syncDock() {
+        const st = lastState;
+        const show = Boolean(st && st.phase === 'playing' && !st.paused && coarsePointer && !controllerOnline && !st.pureCamera);
+        touchDock.hidden = !show;
+        document.body.classList.toggle('has-dock', show);
+        if (st) document.getElementById('dock-nuke-n').textContent = `×${st.nukes ?? 0}`;
+      }
+
+      function openHelp() {
+        sfx.unlock();
+        sfx.uiClick();
+        if (engine && engine.phase === 'playing') engine.setManualPause(true);
+        helpOverlay.hidden = false;
+        document.getElementById('btn-help-close').focus();
+      }
+
+      function closeHelp() {
+        helpOverlay.hidden = true;
+      }
+
       function switchInspectorTab(tabName) {
         const isCalib = tabName === 'calib';
         tabBtnCalib.classList.toggle('active', isCalib);
@@ -1488,16 +2037,22 @@
         document.body.classList.toggle('pure-camera', Boolean(st.pureCamera) && !onTitle && !localDialogOpen);
         document.body.classList.toggle('inspector-open', localDialogOpen);
 
+        document.body.classList.toggle('phase-title', onTitle);
+        document.body.classList.toggle('phase-playing', isPlaying);
+        document.body.classList.toggle('phase-gameover', isGameOver);
         btnPause.hidden = !isPlaying;
-        btnStop.hidden = onTitle;
-        if (isPlaying) {
-          btnPause.textContent = st.paused ? '▶ 继续 (P)' : '⏸ 暂停 (P)';
-          btnPause.classList.toggle('warn', Boolean(st.paused));
-        }
+        btnPause.firstElementChild.textContent = st.paused ? '▶' : '⏸';
+        document.getElementById('pc-skip-tutorial').hidden = !st.tutorialActive;
+        btnStartMission.textContent = st.tutorialDone ? '🚀 点火起飞 (Enter)' : '🚀 点火起飞 · 含新手引导 (Enter)';
 
         modeBtnLabel.textContent =
-          st.mode === 'tabletop' ? '模式：实体压屏 (动背景)' : '模式：纯屏街机 (动飞机)';
+          st.mode === 'tabletop' ? '模式：实体压屏' : '模式：纯屏街机';
         btnSkyTheme.textContent = SKY_LABELS[st.skyTheme] || '背景：随剧情';
+        document.getElementById('pc-sky').textContent = btnSkyTheme.textContent;
+        lastState = st;
+        renderCoach(lastCoach);
+        syncDock();
+        syncHudInset();
 
         document.querySelectorAll('[data-mode]').forEach((b) => {
           b.classList.toggle('active', b.dataset.mode === st.mode);
@@ -1632,6 +2187,14 @@
       engine = new window.SkyStrikerEngine(canvas, sfx, {
         onTelemetry(telemetry) {
           if (bridge) bridge.send('telemetry', telemetry);
+          if (typeof telemetry.gustReady === 'number') {
+            document.getElementById('dock-gust').classList.toggle('cooling', telemetry.gustReady < 1);
+            document.getElementById('dock-rail').classList.toggle('cooling', telemetry.railReady === 0);
+            document.getElementById('dock-nuke').classList.toggle('cooling', !telemetry.nukes);
+          }
+        },
+        onCoach(c) {
+          renderCoach(c);
         },
         onStateChange(st) {
           if (st.phase === 'gameover' && lastPhase !== 'gameover') {
@@ -1645,6 +2208,7 @@
           if (st.phase === 'playing' && lastPhase !== 'playing' && window.FlightCard && window.FlightCard.isOpen && window.FlightCard.isOpen()) {
             window.FlightCard.close();
           }
+          if (st.phase === 'playing' && lastPhase !== 'playing') closeHelp();
           lastPhase = st.phase;
           syncUIFromRig(st);
           if (bridge) bridge.send('hostState', st);
@@ -1696,6 +2260,10 @@
           const dot = document.getElementById('conn-dot');
           const txt = document.getElementById('conn-text');
           const live = document.getElementById('link-live-status');
+          controllerOnline = Boolean(info.connected && info.controllerConnected !== false);
+          document.getElementById('pause-fab-dot').classList.toggle('connected', Boolean(info.connected));
+          renderCoach(lastCoach);
+          syncDock();
           if (info.connected) {
             dot.classList.add('connected');
             const rtt = info.rttMs ? ` · ${info.rttMs}ms` : '';
@@ -1802,7 +2370,6 @@
       });
 
       // Inspector Openers (Direct tab routing!)
-      btnOpenCalib.addEventListener('click', () => openSetupDialog('calib'));
       btnTitleCalib.addEventListener('click', () => openSetupDialog('calib'));
       btnPauseSetup.addEventListener('click', () => openSetupDialog('calib'));
       btnOpenSetup.addEventListener('click', () => openSetupDialog('pair'));
@@ -1823,6 +2390,56 @@
         sfx.unlock();
         engine.startMission();
       });
+
+      document.getElementById('btn-title-help').addEventListener('click', openHelp);
+      document.getElementById('pc-help').addEventListener('click', openHelp);
+      document.getElementById('btn-help-close').addEventListener('click', closeHelp);
+      helpOverlay.addEventListener('click', (ev) => {
+        if (ev.target === helpOverlay) closeHelp();
+      });
+      document.getElementById('btn-help-tutorial').addEventListener('click', () => {
+        sfx.unlock();
+        closeHelp();
+        if (dialog.open) dialog.close();
+        engine.startMission({ tutorial: true });
+      });
+      document.getElementById('btn-help-reset-tips').addEventListener('click', (ev) => {
+        engine.resetTips();
+        ev.currentTarget.textContent = '✓ 首次提示已重置，下次遇到会再讲一遍';
+      });
+      coachSkip.addEventListener('click', () => {
+        sfx.uiClick();
+        engine.skipTutorial();
+      });
+
+      // Touch dock: the same actions the phone cockpit / keyboard give
+      const dockTap = (id, fn) => {
+        document.getElementById(id).addEventListener('pointerdown', (ev) => {
+          ev.preventDefault();
+          sfx.unlock();
+          fn();
+        });
+      };
+      dockTap('dock-gust', () => engine.triggerWindGust());
+      dockTap('dock-roll', () => engine.triggerBarrelRoll());
+      dockTap('dock-nuke', () => engine.triggerNuke());
+      const dockRail = document.getElementById('dock-rail');
+      const railRelease = () => {
+        dockRail.classList.remove('charging');
+        engine.keys.delete('KeyJ'); // the engine fires on release, exactly like the keyboard
+      };
+      dockRail.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        sfx.unlock();
+        if (engine.phase !== 'playing' || engine.isPaused) return;
+        dockRail.setPointerCapture(ev.pointerId);
+        dockRail.classList.add('charging');
+        engine.keys.add('KeyJ');
+      });
+      dockRail.addEventListener('pointerup', railRelease);
+      dockRail.addEventListener('pointercancel', railRelease);
+      dockRail.addEventListener('lostpointercapture', railRelease);
+      touchDock.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
       const btnFlightCard = document.getElementById('btn-flight-card');
       btnFlightCard.hidden = !window.FlightCard;
@@ -1892,7 +2509,6 @@
         if (dialog.open) dialog.close();
         engine.stopToTitle();
       };
-      btnStop.addEventListener('click', handleStopToTitle);
       btnPauseStop.addEventListener('click', handleStopToTitle);
       btnGoTitle.addEventListener('click', handleStopToTitle);
 
@@ -1912,9 +2528,20 @@
         engine.updateRig({ pureCamera: false }, false);
       });
 
-      btnMute.addEventListener('click', (ev) => {
+      const toggleMute = () => {
         const muted = sfx.toggleMute();
-        ev.currentTarget.textContent = muted ? '音效：关' : '音效：开';
+        const label = muted ? '音效：关' : '音效：开';
+        btnMute.textContent = label;
+        document.getElementById('pc-mute').textContent = label;
+      };
+      btnMute.addEventListener('click', toggleMute);
+      document.getElementById('pc-mute').addEventListener('click', toggleMute);
+      document.getElementById('pc-sky').addEventListener('click', () => btnSkyTheme.click());
+      document.getElementById('pc-pair').addEventListener('click', () => openSetupDialog('pair'));
+      document.getElementById('pc-skip-tutorial').addEventListener('click', () => {
+        sfx.uiClick();
+        engine.skipTutorial();
+        engine.setManualPause(false);
       });
 
       btnSkyTheme.addEventListener('click', () => {
@@ -2054,6 +2681,13 @@
       // Keyboard Controls
       window.addEventListener('keydown', (ev) => {
         if (dialog.open) return;
+        if (!helpOverlay.hidden) {
+          if (ev.code === 'Escape') {
+            ev.preventDefault();
+            closeHelp();
+          }
+          return;
+        }
         sfx.unlock();
 
         if (engine.phase === 'title') {
@@ -2120,9 +2754,16 @@
 
       // Keep the canvas HUD tucked beneath the floating DOM toolbar (which wraps on narrow screens)
       const topBar = document.querySelector('.top-bar');
+      // In flight the toolbar is just the round pause button on the right, so the HUD can sit level with it
       function syncHudInset() {
-        const r = topBar.getBoundingClientRect();
-        engine.hudTop = r.height > 0 ? Math.round(r.bottom + 8) : 12;
+        if (!engine) return;
+        const bar = document.querySelector('.top-bar');
+        if (document.body.classList.contains('phase-playing') && !btnPause.hidden) {
+          engine.hudTop = Math.max(8, Math.round(btnPause.getBoundingClientRect().top));
+        } else {
+          const r = bar.getBoundingClientRect();
+          engine.hudTop = r.height > 0 ? Math.round(r.bottom + 8) : 12;
+        }
       }
       syncHudInset();
       if (window.ResizeObserver) new ResizeObserver(syncHudInset).observe(topBar);
@@ -2130,6 +2771,7 @@
       window.addEventListener('resize', () => {
         engine.resize();
         syncHudInset();
+        syncCoachPlacement();
       });
 
       let lastTs = performance.now();
