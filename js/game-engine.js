@@ -10,6 +10,8 @@
 
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const lerp = (a, b, t) => a + (b - a) * t;
+  const REMOTE_INPUT_TIMEOUT_MS = 350;
+  const NEUTRAL_REMOTE_INPUT = { vx: 0, vy: 0, firing: false, railCharge: 0, micLevel: 0 };
 
   const STORY_CHAPTERS = [
     {
@@ -239,10 +241,10 @@
       };
 
       this.calibHighlightTimer = 0;
-      this.calibDrawerOpen = false;
       this.hudTop = 12; // set by the host page to sit below its floating toolbar
       this.manualPaused = false;
-      this.setupPaused = false;
+      this.localSetupOpen = false;
+      this.remoteSetupOpen = false;
       this.skillDraftOpen = false;
       this._gpStickLatch = false;
 
@@ -310,7 +312,7 @@
       }) : null;
 
       // Input state (merged from mobile controller, gamepad, keyboard)
-      this.remoteInput = { vx: 0, vy: 0, firing: true, railCharge: 0, micLevel: 0 };
+      this.remoteInput = { ...NEUTRAL_REMOTE_INPUT };
       this.keys = new Set();
       this.pointerDrag = { active: false, vx: 0, vy: 0 };
       this.localRailCharge = 0;
@@ -331,6 +333,14 @@
 
     get isPaused() {
       return this.phase === 'playing' && (this.manualPaused || this.setupPaused || this.skillDraftOpen);
+    }
+
+    get setupPaused() {
+      return this.localSetupOpen || this.remoteSetupOpen;
+    }
+
+    get calibDrawerOpen() {
+      return this.setupPaused;
     }
 
     _mods() {
@@ -354,8 +364,12 @@
       return this.roguelite ? this.roguelite.pickCard(index) : false;
     }
 
-    rerollSkills() {
-      return this.roguelite ? this.roguelite.reroll() : false;
+    pickOfferedSkill(version, cardId) {
+      return this.roguelite ? this.roguelite.pickOfferedCard(version, cardId) : false;
+    }
+
+    rerollSkills(version) {
+      return this.roguelite ? this.roguelite.reroll(version) : false;
     }
 
     moveSkillFocus(delta) {
@@ -367,6 +381,8 @@
     }
 
     _initWorldContainers() {
+      this.hasRemoteFireInput = false;
+      this.clearRemoteInput();
       this.time = 0;
       this.score = 0;
       this.distanceKm = 0;
@@ -565,10 +581,12 @@
       this.onStateChange(this.getPublicState());
     }
 
-    setSetupPause(openFlag) {
-      this.calibDrawerOpen = Boolean(openFlag);
-      this.setupPaused = Boolean(openFlag);
-      if (openFlag) {
+    setSetupPause(open, source = 'host') {
+      const field = source === 'controller' ? 'remoteSetupOpen' : 'localSetupOpen';
+      open = Boolean(open);
+      if (this[field] === open) return;
+      this[field] = open;
+      if (open) {
         this.keys.clear();
         this.pointerDrag.active = false;
       }
@@ -743,21 +761,45 @@
       };
     }
 
+    clearRemoteInput() {
+      Object.assign(this.remoteInput, NEUTRAL_REMOTE_INPUT);
+      this._lastRemoteInputAt = null;
+      if (this.localRailCharge < 0.97) this.fullChargeAt = null;
+    }
+
+    _expireRemoteInput(now) {
+      if (this._lastRemoteInputAt !== null && now - this._lastRemoteInputAt >= REMOTE_INPUT_TIMEOUT_MS) {
+        this.clearRemoteInput();
+      }
+    }
+
     setRemoteInput(data) {
       if (!data) return;
-      this._lastRemoteInputAt = performance.now();
-      if (typeof data.vx === 'number') this.remoteInput.vx = clamp(data.vx, -1, 1);
-      if (typeof data.vy === 'number') this.remoteInput.vy = clamp(data.vy, -1, 1);
-      if (typeof data.firing === 'boolean') this.remoteInput.firing = data.firing;
-      if (typeof data.micLevel === 'number') this.remoteInput.micLevel = clamp(data.micLevel, 0, 1);
-      if (typeof data.railCharge === 'number') {
+      const now = performance.now();
+      this._expireRemoteInput(now);
+      const { vx, vy, firing, micLevel, railCharge, autoRelease } = data;
+      const hasAxis = Number.isFinite(vx) || Number.isFinite(vy);
+      const hasFiring = typeof firing === 'boolean';
+      const hasMic = Number.isFinite(micLevel);
+      const hasCharge = Number.isFinite(railCharge);
+      if (!hasAxis && !hasFiring && !hasMic && !hasCharge) return;
+
+      this._lastRemoteInputAt = now;
+      if (Number.isFinite(vx)) this.remoteInput.vx = clamp(vx, -1, 1);
+      if (Number.isFinite(vy)) this.remoteInput.vy = clamp(vy, -1, 1);
+      if (hasFiring) {
+        this.hasRemoteFireInput = true;
+        this.remoteInput.firing = firing;
+      }
+      if (hasMic) this.remoteInput.micLevel = clamp(micLevel, 0, 1);
+      if (hasCharge) {
         const prev = this.remoteInput.railCharge;
-        const next = clamp(data.railCharge, 0, 1);
+        const next = clamp(railCharge, 0, 1);
         this.remoteInput.railCharge = next;
         if (this.phase === 'playing' && !this.isPaused && next > 0.15) {
           this.sfx.chargeTick(next);
         }
-        if (prev >= 0.38 && next === 0 && data.autoRelease) {
+        if (prev >= 0.38 && next === 0 && autoRelease) {
           this.triggerRailgun(prev);
         }
       }
@@ -1173,12 +1215,10 @@
       }
       // Sustained breath: real mic level from the phone, or holding the gust key/button as a gentle breeze
       const heldBreeze = this.keys.has('KeyF') || gp.breeze ? 0.5 : 0;
-      // A phone that locks or disconnects mid-blow must not leave a permanent tailwind behind
-      if (this._lastRemoteInputAt && performance.now() - this._lastRemoteInputAt > 350) this.remoteInput.micLevel = 0;
       return {
         vx,
         vy,
-        firing: this.remoteInput.firing || gp.firing || kx !== 0 || ky !== 0 || this.pointerDrag.active,
+        firing: !this.hasRemoteFireInput || this.remoteInput.firing || gp.firing || kx !== 0 || ky !== 0 || this.pointerDrag.active,
         railCharge,
         micBreath: this.remoteInput.micLevel || 0,
         breath: Math.max(this.remoteInput.micLevel || 0, heldBreeze)
@@ -1186,6 +1226,7 @@
     }
 
     step(dt) {
+      this._expireRemoteInput(performance.now());
       dt = Math.min(dt, 0.05);
       this._calmFactors(dt);
       // The corridor lazily re-centres on the craft, so strafing shows motion but the lane never gets lost

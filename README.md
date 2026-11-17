@@ -128,6 +128,10 @@
 - `server.mjs` — 零依赖 Node.js 本地服务（过滤代理虚拟网卡、纯内置 `crypto` 自签名 HTTPS 证书、原生 RFC 6455 WebSocket 毫秒级房间中继）
 - `启动桌面飞机大战.bat` — Windows 本地一键双协议启动器
 
+## 回归测试
+
+在项目目录运行 `node --test`，可检查手机输入超时、独立校准暂停和跨端技能选卡。测试无需安装 npm 依赖。
+
 ## 开源许可
 
 本项目基于 [MIT License](./LICENSE) 开源，作者：杨老师玩AI (`@shyboy`)。

@@ -177,7 +177,9 @@
       this.levelFlash = 0;
       this.time = 0;
 
-      this.draft = null; // { level, rerollsLeft, selectedIndex, choices: [...] }
+      this.draft = null;
+      this.draftSession = Math.random().toString(36).slice(2);
+      this.draftSequence = 0;
       this.hudBarRect = null;
 
       this._ensureUi();
@@ -659,9 +661,10 @@
       const choices = this._rollChoices();
       if (choices.length === 0) {
         this.pendingLevelUps = 0;
-        return;
+        return false;
       }
       this.draft = {
+        version: `${this.draftSession}-${++this.draftSequence}`,
         level: this.level,
         rerollsLeft: 2,
         selectedIndex: 0,
@@ -677,10 +680,12 @@
         }
       }
       if (this.cb.onDraftChange) this.cb.onDraftChange(this.getDraftState());
+      return true;
     }
 
     _renderDraftDom() {
       if (!this._dlg || !this.draft) return;
+      const { version } = this.draft;
       this._titleEl.textContent = `借风核心升级 · Lv.${this.draft.level}`;
       this._rerollBtn.disabled = this.draft.rerollsLeft <= 0;
       this._rerollBtn.textContent = `🎲 换一批 (剩余 ${this.draft.rerollsLeft} 次 · R)`;
@@ -711,9 +716,9 @@
           </div>
           <div class="rg-card-desc">${c.desc}</div>
         `;
-        btn.addEventListener('click', () => this.pickCard(idx));
+        btn.addEventListener('click', () => this.pickOfferedCard(version, c.id));
         btn.addEventListener('pointerenter', () => {
-          if (this.draft) {
+          if (this.draft?.version === version) {
             this.draft.selectedIndex = idx;
             this._updateFocusVisual();
           }
@@ -762,11 +767,12 @@
       this.pickCard(this.draft.selectedIndex || 0);
     }
 
-    reroll() {
-      if (!this.draft || this.draft.rerollsLeft <= 0) return false;
+    reroll(version = this.draft?.version) {
+      if (!this.draft || this.draft.version !== version || this.draft.rerollsLeft <= 0) return false;
       const prevIds = new Set(this.draft.choices.map((c) => c.id));
       const next = this._rollChoices(prevIds);
       if (next.length === 0) return false;
+      this.draft.version = `${this.draftSession}-${++this.draftSequence}`;
       this.draft.rerollsLeft -= 1;
       this.draft.choices = next;
       this.draft.selectedIndex = 0;
@@ -777,8 +783,13 @@
     }
 
     pickCard(index) {
-      if (!this.draft) return false;
-      const choice = this.draft.choices[index];
+      const choice = this.draft?.choices[index];
+      return choice ? this.pickOfferedCard(this.draft.version, choice.id) : false;
+    }
+
+    pickOfferedCard(version, cardId) {
+      if (!this.draft || this.draft.version !== version) return false;
+      const choice = this.draft.choices.find((card) => card.id === cardId);
       if (!choice) return false;
 
       if (!this.skills[choice.id]) this.pickOrder.push(choice.id);
@@ -797,11 +808,8 @@
       this.pendingLevelUps = Math.max(0, this.pendingLevelUps - 1);
       this.closeDraft(true);
 
-      if (this.pendingLevelUps > 0) {
-        this._openDraft();
-      } else if (this.cb.onDraftChange) {
-        this.cb.onDraftChange(null);
-      }
+      if (this.pendingLevelUps > 0 && this._openDraft()) return true;
+      if (this.cb.onDraftChange) this.cb.onDraftChange(null);
       return true;
     }
 
@@ -816,6 +824,7 @@
     getDraftState() {
       if (!this.draft) return null;
       return {
+        version: this.draft.version,
         level: this.draft.level,
         rerollsLeft: this.draft.rerollsLeft,
         selectedIndex: this.draft.selectedIndex,

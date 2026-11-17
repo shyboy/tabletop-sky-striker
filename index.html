@@ -2287,9 +2287,9 @@
       });
 
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden && engine && engine.phase === 'playing') {
-          engine.setManualPause(true);
-        }
+        if (!document.hidden || !engine) return;
+        engine.clearRemoteInput();
+        if (engine.phase === 'playing') engine.setManualPause(true);
       });
 
       // Battlefield snapshot taken the moment a voyage ends, for the keepsake card
@@ -2330,8 +2330,12 @@
       bridge = new window.LinkBridge({
         role: 'host',
         roomId,
-        onMessage(type, payload) {
+        onMessage(type, payload, { from }) {
+          if (from !== 'controller' && type !== 'crew' && type !== 'requestState') return;
           if (type === 'input') {
+            if (payload && typeof payload.calibOpen === 'boolean') {
+              engine.setSetupPause(payload.calibOpen, 'controller');
+            }
             engine.setRemoteInput(payload);
           } else if (type === 'railgunFire') {
             engine.triggerRailgun(payload && payload.power ? payload.power : 1);
@@ -2344,18 +2348,15 @@
           } else if (type === 'updateRig') {
             engine.updateRig(payload || {}, true);
           } else if (type === 'calibFocus') {
-            engine.setSetupPause(Boolean(payload && payload.open));
+            engine.setSetupPause(Boolean(payload && payload.open), 'controller');
           } else if (type === 'startMission' || type === 'restart') {
             sfx.unlock();
             if (dialog.open) dialog.close();
             engine.startMission();
           } else if (type === 'togglePause') {
-            if (dialog.open) dialog.close();
-            else engine.toggleManualPause();
+            engine.toggleManualPause();
           } else if (type === 'setPause') {
-            const wantPause = Boolean(payload && payload.paused);
-            if (!wantPause && dialog.open) dialog.close();
-            engine.setManualPause(wantPause);
+            engine.setManualPause(Boolean(payload && payload.paused));
           } else if (type === 'crew') {
             engine.crewAction(payload && payload.action, payload || {});
           } else if (type === 'finishVoyage') {
@@ -2366,10 +2367,14 @@
             engine.stopToTitle();
           } else if (type === 'pickSkill') {
             sfx.unlock();
-            if (payload && typeof payload.index === 'number') engine.pickSkill(payload.index);
+            if (!payload || !engine.pickOfferedSkill(payload.version, payload.cardId)) {
+              bridge.send('hostState', engine.getPublicState());
+            }
           } else if (type === 'rerollSkills') {
             sfx.unlock();
-            engine.rerollSkills();
+            if (typeof payload?.version !== 'string' || !engine.rerollSkills(payload.version)) {
+              bridge.send('hostState', engine.getPublicState());
+            }
           } else if (type === 'requestState') {
             bridge.send('hostState', engine.getPublicState());
           }
@@ -2378,7 +2383,12 @@
           const dot = document.getElementById('conn-dot');
           const txt = document.getElementById('conn-text');
           const live = document.getElementById('link-live-status');
-          controllerOnline = Boolean(info.connected && info.controllerConnected !== false);
+          const wasControllerOnline = controllerOnline;
+          controllerOnline = Boolean(info.controllerConnected);
+          if (wasControllerOnline && !controllerOnline) {
+            engine.clearRemoteInput();
+            engine.setSetupPause(false, 'controller');
+          }
           document.getElementById('pause-fab-dot').classList.toggle('connected', Boolean(info.connected));
           renderCoach(lastCoach);
           syncDock();
