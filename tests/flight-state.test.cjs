@@ -8,10 +8,10 @@ const sources = ['roguelite-skills.js', 'game-engine.js'].map((file) => new vm.S
   fs.readFileSync(path.join(__dirname, '..', 'js', file), 'utf8'), { filename: file }
 ));
 
-function createFlight() {
+function createFlight(localStorage) {
   let now = 0;
   let railShots = 0;
-  const browser = vm.createContext({ performance: { now: () => now }, navigator: {} });
+  const browser = vm.createContext({ performance: { now: () => now }, navigator: {}, localStorage });
   sources.forEach((script) => script.runInContext(browser));
   const canvas = { getContext: () => ({}), getBoundingClientRect: () => ({ width: 1280, height: 800 }) };
   const sfx = new Proxy({ railgunFire: () => railShots++ }, { get: (target, key) => target[key] || (() => {}) });
@@ -148,4 +148,67 @@ test('a queued level-up and a new mission get distinct versions', () => {
   const newMission = engine.getPublicState().skillDraft;
   assert.notEqual(next.version, newMission.version);
   assert.equal(engine.pickOfferedSkill(next.version, next.choices[0].id), false);
+});
+
+test('cancelled touch charging never fires; a subsequent full release still earns a perfect shot', () => {
+  const { engine, railShots } = createFlight();
+  engine.startMission({ tutorial: false });
+  assert.equal(engine.beginTouchRail(), true);
+  engine._gatherInput(1);
+  assert.equal(engine.touchRailCharge, 1);
+  engine.endTouchRail();
+  assert.equal(engine._gatherInput(0).railCharge, 0);
+  assert.equal(engine.fullChargeAt, null);
+  assert.equal(engine.endTouchRail(true), false);
+  assert.equal(railShots(), 0);
+
+  assert.equal(engine.beginTouchRail(), true);
+  engine._gatherInput(1);
+  assert.equal(engine.endTouchRail(true), true);
+  assert.equal(engine.player.railPerfect, true);
+  assert.equal(railShots(), 1);
+});
+
+test('pause cancels touch charging without consuming keyboard input', () => {
+  const { engine, railShots } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine.keys.add('KeyJ');
+  engine._gatherInput(0.25);
+  engine.beginTouchRail();
+  engine._gatherInput(0.5);
+  const keyboardCharge = engine.localRailCharge;
+  engine.endTouchRail();
+  assert.equal(engine.localRailCharge, keyboardCharge);
+  assert.equal(engine.keys.has('KeyJ'), true);
+  engine.keys.clear();
+  engine._wasChargingKey = false;
+  engine.localRailCharge = 0;
+
+  engine.beginTouchRail();
+  engine._gatherInput(1);
+  engine.setSetupPause(true, 'controller');
+  engine.setSetupPause(false, 'controller');
+  assert.equal(engine.endTouchRail(true), false);
+  assert.equal(railShots(), 0);
+});
+
+test('old toy presets load and subsequent calibration survives a reload, including the anchor', () => {
+  const key = 'skyStriker.toy';
+  const values = new Map([[key, JSON.stringify({ shape: 'car', name: '小车', hitSize: 'large', w: 120, l: 150 })]]);
+  const storage = { getItem: (name) => values.get(name), setItem: (name, value) => values.set(name, value) };
+  const { engine } = createFlight(storage);
+  assert.equal(engine.rig.anchorY, 0.75);
+  assert.equal(engine.rig.toyName, '小车');
+  assert.equal(engine.rig.hitSize, 'large');
+  assert.equal(engine.rig.length, 150);
+  engine.updateRig({ width: 151, length: 170, anchorY: 0.83 });
+  engine.updateRig({ mode: 'arcade', godMode: true });
+  assert.deepEqual(JSON.parse(values.get(key)), { shape: 'car', name: '小车', hitSize: 'large', w: 151, l: 170, anchorY: 0.83 });
+
+  const reloaded = createFlight(storage).engine;
+  assert.equal(reloaded.rig.width, 151);
+  assert.equal(reloaded.rig.anchorY, 0.83);
+  assert.equal(reloaded.player.screenY, 800 * 0.83);
+  assert.equal(reloaded.rig.mode, 'tabletop');
+  assert.equal(reloaded.rig.godMode, false);
 });
