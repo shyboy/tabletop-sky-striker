@@ -217,253 +217,13 @@
       box-shadow: 0 0 10px var(--accent-green);
     }
 
-    /* ===================== TITLE SCREEN OVERLAY ===================== */
-    #title-overlay {
-      position: fixed;
-      top: max(3.05rem, calc(env(safe-area-inset-top, 0px) + 2.85rem));
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 14;
-      inline-size: min(47.5rem, calc(100dvw - 1.5rem));
-      max-block-size: min(55dvh, 28rem);
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(125, 211, 252, 0.28) transparent;
-      background: linear-gradient(168deg, rgba(8, 22, 44, 0.80) 0%, rgba(6, 16, 34, 0.88) 100%);
-      border: 1px solid rgba(125, 211, 252, 0.34);
-      border-radius: 1.25rem;
-      box-shadow: 0 22px 52px rgba(2, 8, 22, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.16);
-      backdrop-filter: blur(12px);
-      padding: clamp(0.8rem, 1.6dvh, 1.1rem) clamp(1rem, 2.2vw, 1.45rem);
-      display: flex;
-      flex-direction: column;
-      gap: clamp(0.45rem, 1dvh, 0.65rem);
-    }
-
-    #title-overlay::-webkit-scrollbar {
-      width: 5px;
-    }
-
-    #title-overlay::-webkit-scrollbar-thumb {
-      background: rgba(125, 211, 252, 0.28);
-      border-radius: 999px;
-    }
-
-    #title-overlay::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    .title-head-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 0.45rem 0.75rem;
-    }
-
-    .title-brand-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.16rem;
-    }
-
-    .story-kicker {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.45rem;
-      font-size: 0.71rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      color: var(--accent-amber);
-      text-transform: uppercase;
-    }
-
-    .title-heading {
-      font-size: clamp(1.25rem, 1.05rem + 0.95vw, 1.72rem);
-      font-weight: 800;
-      letter-spacing: 0.02em;
-      color: #ffffff;
-      line-height: 1.18;
-    }
-
-    .title-meta-col {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 0.25rem;
-    }
-
-    #title-conn-pill {
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: #fde68a;
-      background: rgba(15, 23, 42, 0.62);
-      border: 1px solid rgba(251, 191, 36, 0.34);
-      border-radius: 999px;
-      padding: 0.2rem 0.65rem;
-      white-space: nowrap;
-    }
-
     .story-copy {
       margin: 0;
-      font-size: clamp(0.8rem, 0.77rem + 0.18vw, 0.9rem);
-      line-height: 1.5;
-      color: #e2e8f0;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      line-height: 1.6;
     }
-
-    .story-copy strong {
-      color: #fde047;
-      font-weight: 700;
-    }
-
-    .chapter-route {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.35rem;
-      font-size: 0.71rem;
-      color: #bae6fd;
-    }
-
-    .route-step {
-      background: rgba(14, 116, 144, 0.28);
-      border: 1px solid rgba(56, 189, 248, 0.28);
-      border-radius: 999px;
-      padding: 0.14rem 0.56rem;
-    }
-
-    .title-config-deck {
-      background: rgba(7, 17, 34, 0.52);
-      border: 1px solid rgba(148, 163, 184, 0.18);
-      border-radius: 0.9rem;
-      padding: 0.55rem 0.65rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.48rem;
-    }
-
-    .title-mode-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.48rem;
-    }
-
-    .mode-card-btn {
-      flex: 1;
-      min-inline-size: 11rem;
-      text-align: left;
-      padding: 0.42rem 0.68rem;
-      border-radius: 0.72rem;
-      border: 1px solid rgba(148, 163, 184, 0.26);
-      background: rgba(15, 23, 42, 0.62);
-      color: #cbd5e1;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 0.1rem;
-      transition: border-color 0.15s, background-color 0.15s;
-    }
-
-    .mode-card-btn strong {
-      font-size: 0.82rem;
-      color: #f8fafc;
-    }
-
-    .mode-card-btn span {
-      font-size: 0.71rem;
-      color: var(--text-dim);
-    }
-
-    .mode-card-btn.active {
-      border-color: var(--accent-amber);
-      background: rgba(251, 191, 36, 0.14);
-    }
-
-    .mode-card-btn.active strong {
-      color: #fde047;
-    }
-
-    .title-prefs-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.4rem 0.75rem;
-    }
-
-    .cta-row {
-      display: grid;
-      grid-template-columns: 1.45fr repeat(3, 1fr);
-      gap: 0.5rem;
-      align-items: stretch;
-    }
-
-    @media (max-width: 680px) {
-      .cta-row {
-        grid-template-columns: repeat(3, 1fr);
-      }
-      .cta-launch {
-        grid-column: 1 / -1;
-      }
-      .title-meta-col {
-        align-items: flex-start;
-      }
-    }
-
-    .cta-launch {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.35rem;
-      min-block-size: 2.6rem;
-      padding: 0.5rem 0.75rem;
-      border-radius: 0.8rem;
-      border: 1px solid #fde047;
-      background: linear-gradient(135deg, #0284c7 0%, #0369a1 55%, #0f766e 100%);
-      box-shadow: 0 8px 22px rgba(2, 132, 199, 0.4);
-      color: #ffffff;
-      font-size: clamp(0.86rem, 0.82rem + 0.22vw, 0.96rem);
-      font-weight: 800;
-      cursor: pointer;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      line-height: 1.15;
-    }
-
-    .cta-launch:hover {
-      filter: brightness(1.08);
-    }
-
-    .cta-secondary {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.35rem;
-      min-block-size: 2.6rem;
-      padding: 0.5rem 0.75rem;
-      border-radius: 0.8rem;
-      border: 1px solid rgba(56, 189, 248, 0.42);
-      background: rgba(15, 23, 42, 0.76);
-      color: #e0f2fe;
-      font-size: 0.82rem;
-      font-weight: 700;
-      cursor: pointer;
-      white-space: nowrap;
-      line-height: 1.15;
-    }
-
-    .cta-secondary:hover {
-      border-color: var(--accent-cyan);
-      background: rgba(30, 41, 59, 0.88);
-    }
-
-    .helipad-guide {
-      margin: 0;
-      text-align: center;
-      font-size: 0.73rem;
-      color: #fde047;
-      opacity: 0.92;
-    }
+    .story-copy strong { color: var(--accent-amber); }
 
     /* ===================== PAUSE & GAMEOVER OVERLAYS ===================== */
     .state-overlay {
@@ -538,95 +298,6 @@
 
     @media (prefers-reduced-motion: reduce) {
       .stat-cell .new-record { animation: none; }
-    }
-
-    .difficulty-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.75rem;
-      color: #cbd5e1;
-    }
-
-    .toy-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.75rem;
-      color: #cbd5e1;
-    }
-
-    .toy-chip {
-      appearance: none;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(15, 23, 42, 0.65);
-      color: #e2e8f0;
-      border-radius: 999px;
-      padding: 0.24rem 0.62rem;
-      min-block-size: 30px;
-      font: 600 0.75rem/1.2 system-ui, -apple-system, sans-serif;
-      cursor: pointer;
-    }
-
-    .toy-chip.active {
-      border-color: #34d399;
-      background: rgba(52, 211, 153, 0.16);
-      color: #a7f3d0;
-    }
-
-    .toy-chip:focus-visible,
-    .toy-name input:focus-visible {
-      outline: 2px solid #34d399;
-      outline-offset: 2px;
-    }
-
-    .toy-name {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
-
-    .toy-name input {
-      inline-size: 7.2rem;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(15, 23, 42, 0.65);
-      color: #f8fafc;
-      border-radius: 999px;
-      padding: 0.22rem 0.62rem;
-      min-block-size: 30px;
-      font: 600 0.75rem/1.2 system-ui, -apple-system, sans-serif;
-    }
-
-    .diff-chip {
-      appearance: none;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(15, 23, 42, 0.65);
-      color: #e2e8f0;
-      border-radius: 999px;
-      padding: 0.24rem 0.62rem;
-      min-block-size: 30px;
-      font: 600 0.75rem/1.2 system-ui, -apple-system, sans-serif;
-      cursor: pointer;
-    }
-
-    .diff-chip.active {
-      border-color: #fbbf24;
-      background: rgba(251, 191, 36, 0.18);
-      color: #fde68a;
-    }
-
-    .diff-chip:focus-visible {
-      outline: 2px solid #fbbf24;
-      outline-offset: 2px;
-    }
-
-    .title-best {
-      margin: 0;
-      font-size: 0.73rem;
-      color: #fde68a;
-      text-align: right;
     }
 
     .stats-grid {
@@ -1428,23 +1099,33 @@
       font-size: 1.5rem;
     }
   </style>
+  <link rel="stylesheet" href="./css/flight-deck.css">
+  <link rel="stylesheet" href="./css/hangar.css">
 </head>
-<body>
+<body class="host-view">
   <div id="stage-wrap">
+    <img id="departure-art" src="./assets/departure.jpg" alt="" fetchpriority="high" hidden>
     <canvas id="game-canvas" aria-label="借风计划桌面飞机大战主战场"></canvas>
 
     <!-- Floating Quick Toolbar -->
     <!-- Title / summary: a few settings. In flight: only a round pause button (everything else lives in the pause menu) -->
     <div class="top-bar" role="toolbar" aria-label="战场快捷控制">
-      <button type="button" id="btn-open-setup" class="pill-btn primary tb-menu">
-        <span id="conn-dot" class="status-dot" aria-hidden="true"></span>
-        <span id="conn-text">手机扫码遥控</span>
+      <div class="mast-brand title-only">
+        <span class="wing-mark" aria-hidden="true"></span>
+        <span>桌面飞机大战<small lang="en">TABLETOP SKY STRIKER</small></span>
+      </div>
+      <button type="button" id="btn-title-help" class="pill-btn tb-menu" aria-label="玩法说明" title="玩法说明">
+        <span class="nav-symbol" aria-hidden="true">?</span><span class="nav-label">玩法说明</span>
       </button>
       <button type="button" id="btn-sky-theme" class="pill-btn tb-menu" aria-label="切换天空光影主题">
-        背景：随剧情
+        <span class="nav-symbol" aria-hidden="true">☼</span><span class="nav-label" id="sky-label">背景：随剧情</span>
       </button>
-      <button type="button" id="btn-mute" class="pill-btn tb-menu" aria-label="切换音效开关">
-        音效：开
+      <button type="button" id="btn-mute" class="pill-btn tb-menu" aria-label="音效" aria-pressed="true">
+        <span class="nav-symbol" aria-hidden="true">♪</span><span class="nav-label" id="sound-label">音效：开</span>
+      </button>
+      <button type="button" id="btn-open-setup" class="pill-btn tb-menu pair-control" title="打开手机配对">
+        <span id="conn-dot" class="status-dot" aria-hidden="true"></span>
+        <span id="conn-text">手机遥控</span>
       </button>
       <button type="button" id="btn-pause" class="pause-fab" hidden aria-label="暂停 (P)：设置、校准与返航都在这里" title="暂停 (P)">
         <span aria-hidden="true">⏸</span>
@@ -1482,79 +1163,60 @@
 
     <!-- 1. Main Title & Story Screen -->
     <section id="title-overlay" aria-labelledby="main-story-title">
-      <div class="title-head-row">
-        <div class="title-brand-group">
-          <div class="story-kicker">
-            <span>PROJECT BORROWED WIND · 双屏虚实互动飞行</span>
+      <div class="flight-head">
+        <p class="project-name" lang="en">PROJECT BORROWED WIND</p>
+        <h1 id="main-story-title">借风计划</h1>
+        <p class="flight-story">给桌上的小家伙借一阵风，飞过云海与星空。</p>
+      </div>
+
+      <div class="departure-card">
+        <div class="departure-fields">
+          <h2 class="flight-label" id="flight-mode-label">起飞方式</h2>
+          <div class="flight-modes" role="group" aria-labelledby="flight-mode-label">
+            <button type="button" class="mode-card-btn active" data-mode="tabletop" aria-pressed="true">
+              <svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c-.9 0-1.5 1.2-1.5 2.6v4.4l-7 4v2l7-2.2v4.5L8 19.5v1.2l4-1 4 1v-1.2l-2.5-1.7v-4.5l7 2.2v-2l-7-4V5.1c0-1.4-.6-2.6-1.5-2.6Z"/></svg><strong>实体压屏</strong><small>放上真实玩具</small>
+            </button>
+            <button type="button" class="mode-card-btn" data-mode="arcade" aria-pressed="false">
+              <svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M8 21h8m-4-3.5V21m-2.5-8 3-4 2 2"/></svg><strong>纯屏街机</strong><small>驾驶虚拟战机</small>
+            </button>
           </div>
-          <h1 id="main-story-title" class="title-heading">借风计划 · 桌面飞机大战</h1>
+          <p class="helipad-guide" id="title-helipad-tip">将玩具机头朝上，放进金色停机坪。</p>
+          <details class="flight-options" id="flight-options">
+            <summary>机型与难度<span id="flight-option-summary">飞机 · 标准</span></summary>
+            <div class="choice-fields">
+              <div class="choice-line" role="group" aria-label="选择玩具类型">
+                <span>机型</span>
+                <button type="button" class="toy-chip" data-toy="jet" data-w="92" data-l="122">飞机<span>灵巧</span></button>
+                <button type="button" class="toy-chip" data-toy="car" data-w="74" data-l="118">小车<span>坦克</span></button>
+                <button type="button" class="toy-chip" data-toy="orb" data-w="68" data-l="68">瓶盖<span>守护</span></button>
+              </div>
+              <div class="choice-line" role="group" aria-label="选择难度">
+                <span>难度</span>
+                <button type="button" class="diff-chip" data-difficulty="easy">轻松</button>
+                <button type="button" class="diff-chip active" data-difficulty="normal">标准</button>
+                <button type="button" class="diff-chip" data-difficulty="ace">王牌</button>
+              </div>
+              <label class="callsign" for="toy-name-input">名字
+                <input type="text" id="toy-name-input" maxlength="8" placeholder="为它起个名字（选填）" autocomplete="off">
+              </label>
+            </div>
+          </details>
         </div>
-        <div class="title-meta-col">
-          <span id="title-conn-pill">等待手机座舱或直接键鼠起飞</span>
-          <p class="title-best" id="title-best" hidden></p>
-        </div>
-      </div>
-
-      <p class="story-copy">
-        书桌上的小家伙自己没有引擎，<strong>那就让整片云海、海岛与晚霞替它往后奔跑。</strong>拿起手机当操纵杆，吹出的每一口气都是托起它的八级顺风。
-      </p>
-
-      <div class="chapter-route" aria-label="三幕航段">
-        <span class="route-step">Ⅰ 晴空借风 · 冲破灰雾封锁</span>
-        <span class="route-step">Ⅱ 暮色穿云 · 晚霞风暴突围</span>
-        <span class="route-step">Ⅲ 星海灯塔 · 守住云端天窗</span>
-      </div>
-
-      <div class="title-config-deck">
-        <div class="title-mode-row" role="group" aria-label="选择起飞方式">
-          <button type="button" class="mode-card-btn active" data-mode="tabletop">
-            <strong>🛸 实体压屏（推荐 · 动背景）</strong>
-            <span>把真小车 / 纸飞机摆进下方金色停机坪</span>
+        <div class="launch-actions">
+          <button type="button" id="btn-start-mission" class="launch-btn">
+            <span id="launch-label">点火起飞 · 新手引导</span><span aria-hidden="true">↗</span>
           </button>
-          <button type="button" class="mode-card-btn" data-mode="arcade">
-            <strong>✈️ 纯屏街机（无实物 · 动战机）</strong>
-            <span>手边没玩具也能直接驾驶虚拟战机</span>
-          </button>
-        </div>
-
-        <div class="title-prefs-row">
-          <div class="toy-row" role="group" aria-label="选择玩具类型">
-            <span>玩具</span>
-            <button type="button" class="toy-chip" data-toy="jet" data-w="92" data-l="122" title="速度快、射速高、判定小，但机体较薄">✈️ 飞机 · 灵巧</button>
-            <button type="button" class="toy-chip" data-toy="car" data-w="74" data-l="118" title="机体厚、子弹重，撞上小型敌机会直接撞飞">🚗 小车 · 坦克</button>
-            <button type="button" class="toy-chip" data-toy="orb" data-w="68" data-l="68" title="自带环绕护卫球拦截子弹，顺风充能更快">🧿 瓶盖 · 守护</button>
-            <label class="toy-name">它叫
-              <input type="text" id="toy-name-input" maxlength="8" placeholder="给它起个名字" autocomplete="off">
-            </label>
-          </div>
-
-          <div class="difficulty-row" role="group" aria-label="选择难度">
-            <span>难度</span>
-            <button type="button" class="diff-chip" data-difficulty="easy">🧸 轻松</button>
-            <button type="button" class="diff-chip active" data-difficulty="normal">✈️ 标准</button>
-            <button type="button" class="diff-chip" data-difficulty="ace">🔥 王牌</button>
-          </div>
+          <button type="button" id="btn-title-calib" class="calibrate-btn">校准底座</button>
         </div>
       </div>
 
-      <div class="cta-row">
-        <button type="button" id="btn-start-mission" class="cta-launch">
-          🚀 点火起飞 · 新手引导
-        </button>
-        <button type="button" id="btn-title-calib" class="cta-secondary">
-          🎯 校准底座
-        </button>
-        <button type="button" id="btn-title-setup" class="cta-secondary">
-          📱 手机遥控
-        </button>
-        <button type="button" id="btn-title-help" class="cta-secondary">
-          📖 玩法说明
-        </button>
+      <ol class="flight-route" aria-label="三幕航线">
+        <li>晴空借风</li><li>暮色穿云</li><li>星海灯塔</li>
+      </ol>
+      <div class="flight-records">
+        <span id="title-conn-pill">可直接起飞或连接手机</span>
+        <span id="title-best" hidden></span>
       </div>
-
-      <p class="helipad-guide" id="title-helipad-tip">
-        ⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内
-      </p>
     </section>
 
     <!-- Non-blocking notice when mobile controller opens calibration drawer -->
@@ -1597,7 +1259,7 @@
     <section id="pause-overlay" class="state-overlay" hidden aria-labelledby="pause-heading">
       <div class="state-card">
         <span class="state-badge" id="pause-chapter-badge">第一航段 · 晴空借风</span>
-        <h2 id="pause-heading">⏸ 航程已悬停</h2>
+        <h2 id="pause-heading">航程已暂停</h2>
         <p class="story-copy" id="pause-subtitle" style="font-size:0.86rem;">
           云海已在机翼下静止。你可以扶正屏幕上的小家伙，或者调整底座尺寸后再出发。
         </p>
@@ -1612,7 +1274,7 @@
             <strong id="pause-score">0</strong>
           </div>
           <div class="stat-cell">
-            <span>护盾完整度</span>
+            <span>机体耐久</span>
             <strong id="pause-hp">100%</strong>
           </div>
         </div>
@@ -1642,10 +1304,17 @@
     <section id="gameover-overlay" class="state-overlay" hidden aria-labelledby="gameover-heading">
       <div class="state-card">
         <span class="state-badge">借风航志 · 返航结算</span>
-        <h2 id="gameover-heading">云端迫降 · 航程记录已归档</h2>
+        <h2 id="gameover-heading">航程结算</h2>
         <p class="story-copy" id="gameover-epilogue" style="font-size:0.86rem;">
           云浪暂时合拢了天窗，但桌上的小家伙已经记住这趟穿过积云的风声。
         </p>
+
+        <div class="voyage-result stat-cell">
+          <span class="rank-badge" id="go-rank" data-rank="C" aria-label="航程评级">C</span>
+          <div class="result-score"><span>本航次总得分</span><strong id="go-score">0000000</strong></div>
+          <div class="result-record"><span id="go-record" class="new-record" hidden>新纪录</span><span id="go-best">历史最佳 0</span></div>
+          <div id="go-skills-box" hidden></div>
+        </div>
 
         <div class="stats-grid">
           <div class="stat-cell">
@@ -1677,26 +1346,15 @@
           </div>
         </div>
 
-        <div class="stat-cell" style="align-items:center;">
-          <span>本航次总得分</span>
-          <div class="rank-row">
-            <span class="rank-badge" id="go-rank" data-rank="C" aria-label="航程评级">C</span>
-            <strong id="go-score" style="font-size:1.35rem;color:#fde047;">0000000</strong>
-          </div>
-          <span id="go-record" class="new-record" hidden>🏆 新纪录！</span>
-          <span id="go-best" style="font-size:0.75rem;">历史最佳 0</span>
-          <div id="go-skills-box" style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:6px;" hidden></div>
-        </div>
-
         <div class="action-stack">
           <button type="button" id="btn-relaunch" class="btn-block primary">↻ 再次点火升空 (Enter / R)</button>
           <button type="button" id="btn-flight-card" class="btn-block">📸 生成航程纪念卡</button>
-          <button type="button" id="btn-go-title" class="btn-block">⏹ 返回桌面停机坪（主界面）</button>
+          <button type="button" id="btn-go-title" class="btn-block">返回停机坪</button>
         </div>
       </div>
     </section>
     <!-- 4. How-to-play guide -->
-    <section id="help-overlay" class="state-overlay" hidden aria-labelledby="help-heading">
+    <dialog id="help-overlay" class="state-overlay" hidden aria-labelledby="help-heading">
       <div class="state-card help-card themed-scroller">
         <div class="help-top">
           <h2 id="help-heading">📖 玩法说明</h2>
@@ -1763,7 +1421,7 @@
           <button type="button" id="btn-help-reset-tips" class="btn-block">💡 重新显示首次提示</button>
         </div>
       </div>
-    </section>
+    </dialog>
   </div>
 
   <!-- Side-Docked See-Through Inspector Dialog (Zero backdrop blur so center helipad is 100% visible!) -->
@@ -1794,7 +1452,7 @@
       <!-- Tab 1: Unobstructed Live Rig Calibration -->
       <section id="panel-calib" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-calib">
         <div class="live-preview-banner">
-          👀 <strong>右侧画布正中央已点亮实时标尺</strong>：拖动下方滑块或点击右侧空白处即可边看边对准你的实物边缘。
+          <strong>把玩具放进金色框。</strong> 拖动滑块，让画面上的标尺贴合实物边缘。
         </div>
 
         <div class="seg-row" role="group" aria-label="核心视角模式">
@@ -1954,7 +1612,6 @@
 
       const btnStartMission = document.getElementById('btn-start-mission');
       const btnTitleCalib = document.getElementById('btn-title-calib');
-      const btnTitleSetup = document.getElementById('btn-title-setup');
       const titleHelipadTip = document.getElementById('title-helipad-tip');
       const titleConnPill = document.getElementById('title-conn-pill');
 
@@ -2030,7 +1687,7 @@
 
       function renderCoach(c) {
         lastCoach = c;
-        const show = Boolean(c && lastState && lastState.phase === 'playing');
+        const show = Boolean(c && lastState && lastState.phase === 'playing' && !lastState.paused);
         coachCard.hidden = !show;
         document.querySelectorAll('.dock-btn').forEach((b) => {
           b.classList.toggle('pulse', Boolean(show && c.kind === 'tutorial' && DOCK_TARGETS[c.target] === b.id));
@@ -2058,7 +1715,7 @@
         const W = window.innerWidth;
         const H = window.innerHeight;
         const hudTop = engine ? engine.hudTop : 12;
-        coachCard.style.setProperty('--coach-top', `${hudTop + 96}px`);
+        coachCard.style.setProperty('--coach-top', `${hudTop + 112}px`);
         if (W > H * 1.2) {
           coachCard.classList.add('side');
           return;
@@ -2082,12 +1739,16 @@
         sfx.uiClick();
         if (engine && engine.phase === 'playing') engine.setManualPause(true);
         helpOverlay.hidden = false;
+        if (!helpOverlay.open) helpOverlay.showModal();
         document.getElementById('btn-help-close').focus();
       }
 
       function closeHelp() {
+        if (helpOverlay.open) helpOverlay.close();
         helpOverlay.hidden = true;
       }
+
+      helpOverlay.addEventListener('close', () => { helpOverlay.hidden = true; });
 
       function switchInspectorTab(tabName) {
         const isCalib = tabName === 'calib';
@@ -2095,6 +1756,8 @@
         tabBtnCalib.setAttribute('aria-selected', String(isCalib));
         tabBtnPair.classList.toggle('active', !isCalib);
         tabBtnPair.setAttribute('aria-selected', String(!isCalib));
+        tabBtnCalib.tabIndex = isCalib ? 0 : -1;
+        tabBtnPair.tabIndex = isCalib ? -1 : 0;
         panelCalib.hidden = !isCalib;
         panelPair.hidden = isCalib;
       }
@@ -2107,6 +1770,18 @@
         sfx.uiClick();
         switchInspectorTab('pair');
       });
+
+      for (const tab of [tabBtnCalib, tabBtnPair]) {
+        tab.addEventListener('keydown', (ev) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
+          ev.preventDefault();
+          let next = tab === tabBtnCalib ? tabBtnPair : tabBtnCalib;
+          if (ev.key === 'Home') next = tabBtnCalib;
+          if (ev.key === 'End') next = tabBtnPair;
+          next.click();
+          next.focus();
+        });
+      }
 
       btnDockSide.addEventListener('click', () => {
         sfx.uiClick();
@@ -2126,7 +1801,7 @@
         if (st.wave === 2) {
           return `冲破第一道灰雾后，小家伙在漫天晚霞里飞出了 ${st.distanceKm.toFixed(1)} 公里。下次遇到密集弹幕，试着对手机吹一口八级顺风。`;
         }
-        return `第一次试飞已在云端推进 ${st.distanceKm.toFixed(1)} 公里。扶正桌面上的机身，拉下磁轨栓或呼唤顺风，我们再冲一次天窗！`;
+        return `小家伙飞过了 ${st.distanceKm.toFixed(1)} 公里的晴空。准备好时，再借一阵顺风出发。`;
       }
 
       function syncUIFromRig(st) {
@@ -2145,12 +1820,15 @@
         btnPause.hidden = !isPlaying;
         btnPause.firstElementChild.textContent = st.paused ? '▶' : '⏸';
         document.getElementById('pc-skip-tutorial').hidden = !st.tutorialActive;
-        btnStartMission.textContent = st.tutorialDone ? '🚀 点火起飞' : '🚀 点火起飞 · 新手引导';
+        document.getElementById('launch-label').textContent = st.tutorialDone ? '点火起飞' : '点火起飞 · 新手引导';
 
         modeBtnLabel.textContent =
           st.mode === 'tabletop' ? '模式：实体压屏' : '模式：纯屏街机';
-        btnSkyTheme.textContent = SKY_LABELS[st.skyTheme] || '背景：随剧情';
-        document.getElementById('pc-sky').textContent = btnSkyTheme.textContent;
+        const skyLabel = SKY_LABELS[st.skyTheme] || '背景：随剧情';
+        document.getElementById('sky-label').textContent = skyLabel;
+        btnSkyTheme.setAttribute('aria-label', skyLabel + '，切换背景');
+        btnSkyTheme.title = skyLabel;
+        document.getElementById('pc-sky').textContent = skyLabel;
         document.getElementById('pc-dim').textContent = `背景亮度：${DIM_LABELS[st.bgDim] || '标准'}`;
         lastState = st;
         renderCoach(lastCoach);
@@ -2158,14 +1836,20 @@
         syncHudInset();
 
         document.querySelectorAll('[data-mode]').forEach((b) => {
-          b.classList.toggle('active', b.dataset.mode === st.mode);
+          const selected = b.dataset.mode === st.mode;
+          b.classList.toggle('active', selected);
+          b.setAttribute('aria-pressed', String(selected));
         });
         document.querySelectorAll('[data-toy]').forEach((b) => {
           const on = b.dataset.toy === st.shape;
           b.classList.toggle('active', on);
           b.setAttribute('aria-pressed', String(on));
         });
-        document.querySelectorAll('[data-hit]').forEach((b) => b.classList.toggle('active', b.dataset.hit === st.hitSize));
+        document.querySelectorAll('[data-hit]').forEach((b) => {
+          const selected = b.dataset.hit === st.hitSize;
+          b.classList.toggle('active', selected);
+          b.setAttribute('aria-pressed', String(selected));
+        });
         document.querySelectorAll('[data-toy]').forEach((b) => { b.title = TOY_DESC[b.dataset.toy] || ''; });
         document.querySelectorAll('[data-difficulty]').forEach((b) => {
           const on = b.dataset.difficulty === st.difficulty;
@@ -2173,9 +1857,17 @@
           b.setAttribute('aria-pressed', String(on));
         });
 
-        titleHelipadTip.textContent = st.mode === 'tabletop'
-          ? '⬇ 请将实物机头朝上，放进屏幕下方的金色呼吸停机坪内'
-          : '⬇ 当前为纯屏虚拟战机模式，下方战机已就位，可直接点火升空';
+        const tabletop = st.mode === 'tabletop';
+        titleHelipadTip.textContent = tabletop
+          ? '将玩具机头朝上，放进金色停机坪。'
+          : '战机会自动开火，用方向键、摇杆或拖动来移动。';
+        const toy = { jet: '飞机', car: '小车', orb: '瓶盖' }[st.shape] || '飞机';
+        const difficulty = { easy: '轻松', normal: '标准', ace: '王牌' }[st.difficulty] || '标准';
+        document.getElementById('flight-option-summary').textContent = `${toy} · ${difficulty}`;
+        titleOverlay.style.setProperty('--pad-top', tabletop
+          ? `calc(${st.anchorY * 100}dvh - ${st.length / 2 + 46}px)`
+          : 'calc(75dvh - 72px)');
+        titleOverlay.style.setProperty('--pad-half', tabletop ? `${st.width / 2 + 20}px` : '60px');
 
         btnCalibGo.textContent = isPlaying
           ? '▶ 校准完毕 · 继续飞行'
@@ -2211,7 +1903,7 @@
           gameoverEpilogue.textContent = buildVoyageEpilogue(st);
           document.getElementById('gameover-heading').textContent = st.storyCleared
             ? '凯旋返航 · 借风计划完成'
-            : '云端迫降 · 航程记录已归档';
+            : '航程结算';
           goWave.textContent = st.storyCleared
             ? (st.wave > 4 ? `无尽第 ${st.wave} 关` : '三幕通关 ⭐')
             : `第 ${st.wave || 1} 幕`;
@@ -2242,7 +1934,7 @@
         const best = st.best || {};
         titleBest.hidden = !(best.score > 0);
         if (best.score > 0) {
-          titleBest.textContent = `🏆 历史最佳 ${best.score} 分 · 最远 ${Number(best.distanceKm || 0).toFixed(1)} km${best.cleared ? ' · 已通关三幕航段 ⭐' : ''}`;
+          titleBest.textContent = `最佳 ${best.score} 分 · 最远 ${Number(best.distanceKm || 0).toFixed(1)} km${best.cleared ? ' · 已通关三幕航段 ⭐' : ''}`;
         }
 
         rngWidth.value = Math.round(st.width);
@@ -2326,6 +2018,8 @@
           if (bridge) bridge.send('hostState', st);
         }
       });
+
+      engine.departureArt = document.getElementById('departure-art');
 
       bridge = new window.LinkBridge({
         role: 'host',
@@ -2491,7 +2185,6 @@
       btnTitleCalib.addEventListener('click', () => openSetupDialog('calib'));
       btnPauseSetup.addEventListener('click', () => openSetupDialog('calib'));
       btnOpenSetup.addEventListener('click', () => openSetupDialog('pair'));
-      btnTitleSetup.addEventListener('click', () => openSetupDialog('pair'));
 
       btnCalibGo.addEventListener('click', () => {
         sfx.unlock();
@@ -2651,7 +2344,9 @@
       const toggleMute = () => {
         const muted = sfx.toggleMute();
         const label = muted ? '音效：关' : '音效：开';
-        btnMute.textContent = label;
+        document.getElementById('sound-label').textContent = label;
+        btnMute.setAttribute('aria-pressed', String(!muted));
+        btnMute.title = label;
         document.getElementById('pc-mute').textContent = label;
       };
       btnMute.addEventListener('click', toggleMute);
@@ -2846,6 +2541,11 @@
           }
           return;
         }
+
+        // Let a focused menu control handle its own activation before applying flight shortcuts.
+        const activation = ev.code === 'Enter' || ev.code === 'Space';
+        if (activation && (engine.phase !== 'playing' || engine.isPaused)
+          && ev.target?.closest?.('button, summary, input, select, a[href]')) return;
 
         if (engine.phase === 'title') {
           if (ev.code === 'Enter' || ev.code === 'Space') {

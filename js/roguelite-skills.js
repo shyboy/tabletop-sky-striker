@@ -1432,20 +1432,21 @@
       ctx.restore();
     }
 
-    renderHudBar(ctx, W, H, hudTop = 12, alpha = 1) {
-      const barW = Math.min(300, Math.max(150, W - 260));
-      const x = (W - barW) * 0.5;
-      const y = Math.max(8, hudTop - 2);
+    renderHudBar(ctx, W, H, hudTop = 12, alpha = 1, panelWidth = 0) {
+      const barW = panelWidth ? panelWidth - 59 : Math.min(300, Math.max(150, W - 260));
+      const x = panelWidth ? 65 : (W - barW) * 0.5;
+      const y = panelWidth ? hudTop : Math.max(8, hudTop - 2);
       const ratio = clamp(this.xp / Math.max(1, this.xpNext), 0, 1);
 
       ctx.save();
       ctx.globalAlpha = clamp(alpha, 0.25, 1);
 
-      // Level pill
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.65)';
-      ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(x - 48, y, barW + 52, 18, 9) : ctx.rect(x - 48, y, barW + 52, 18);
-      ctx.fill();
+      if (!panelWidth) {
+        ctx.fillStyle = 'rgba(7, 20, 38, 0.65)';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(x - 48, y, barW + 52, 18, 9) : ctx.rect(x - 48, y, barW + 52, 18);
+        ctx.fill();
+      }
 
       ctx.font = '900 10.5px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'left';

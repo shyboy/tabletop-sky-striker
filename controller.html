@@ -722,11 +722,14 @@
       line-height: 1.38;
     }
   </style>
+  <link rel="stylesheet" href="./css/flight-deck.css">
+  <link rel="stylesheet" href="./css/stations.css">
 </head>
-<body>
+<body class="cockpit-view">
   <main class="cockpit-shell">
     <!-- 1. Header -->
     <header class="cockpit-top">
+      <h1 class="station-brand"><span class="wing-mark" aria-hidden="true"></span>驾驶座舱</h1>
       <div class="link-chip">
         <span id="c-dot" class="dot" aria-hidden="true"></span>
         <span id="c-status">连接大屏中...</span>
@@ -750,27 +753,31 @@
     <section class="mfd-bay" aria-label="战术雷达与传感器">
       <div class="radar-card">
         <canvas id="radar-canvas" width="140" height="140" aria-label="敌机方位雷达"></canvas>
-        <span class="radar-caption" id="wave-label">STANDBY</span>
+        <span class="radar-caption" id="wave-label">停机坪待命</span>
       </div>
 
       <div class="sensor-col">
         <div>
           <div class="chapter-line" id="chapter-label">借风计划 · 把玩具放进停机坪</div>
           <div class="stats-strip">
-            <span id="score-text">0000000</span>
+            <span class="station-score"><small>得分</small><b id="score-text">0000000</b></span>
             <span id="lv-text" style="color:#7dd3fc;">Lv.1 · 火力1</span>
           </div>
-          <div class="hp-track" aria-label="战机护盾">
-            <div id="hp-fill" class="hp-fill"></div>
+          <div class="meter-row"><span>耐久</span>
+            <div id="cockpit-hp" class="hp-track" role="progressbar" aria-label="机体耐久" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+              <div id="hp-fill" class="hp-fill"></div>
+            </div>
           </div>
-          <div class="xp-track" aria-label="升级经验条">
-            <div id="xp-fill" class="xp-fill"></div>
+          <div class="meter-row"><span>经验</span>
+            <div id="cockpit-xp" class="xp-track" role="progressbar" aria-label="升级经验" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="xp-fill" class="xp-fill"></div>
+            </div>
           </div>
         </div>
 
         <div class="ctrl-mode-row" role="group" aria-label="操控模式选择">
-          <button type="button" id="btn-touch-mode" class="mini-btn active">触屏摇杆</button>
-          <button type="button" id="btn-gyro-mode" class="mini-btn">体感飞行杆</button>
+          <button type="button" id="btn-touch-mode" class="mini-btn active" aria-pressed="true">触屏摇杆</button>
+          <button type="button" id="btn-gyro-mode" class="mini-btn" aria-pressed="false">体感飞行杆</button>
           <button type="button" id="btn-gyro-zero" class="mini-btn" hidden>归零</button>
         </div>
 
@@ -787,27 +794,28 @@
     <section class="deck-grid" aria-label="主飞行操控台">
       <!-- Left: Joystick + Barrel Roll -->
       <div class="stick-panel">
+        <span class="deck-label">方向摇杆</span>
         <div id="joystick-zone" role="application" aria-label="全向飞行摇杆">
           <div id="stick-knob"></div>
         </div>
         <div class="stick-footer">
-          <button type="button" id="btn-roll" class="roll-btn">🌀 翻滚躲弹 (后拉手机)</button>
+          <button type="button" id="btn-roll" class="roll-btn">翻滚躲弹</button>
         </div>
       </div>
 
       <!-- Right: Pull-down Railgun Lever + Smart Primary Action Button -->
       <div class="weapons-panel">
         <div class="railgun-bay">
-          <span class="weapon-label">⬇ 按住下拉蓄力磁轨炮</span>
+          <span class="weapon-label">磁轨炮 · 下拉蓄力</span>
           <div id="railgun-track" role="slider" aria-label="下拉蓄力磁轨炮拉栓" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
             <div id="railgun-fill"></div>
             <div id="railgun-handle">拉栓</div>
           </div>
         </div>
 
-        <button type="button" id="nuke-btn" class="launch-mode">
-          <span class="nuke-title" id="nuke-title">🚀 点火起飞</span>
-          <span class="nuke-count" id="nuke-count">带桌面小家伙升空</span>
+        <button type="button" id="nuke-btn" class="launch-mode" disabled>
+          <span class="nuke-title" id="nuke-title">等待大屏</span>
+          <span class="nuke-count" id="nuke-count">从大屏的扫码入口连接</span>
         </button>
       </div>
     </section>

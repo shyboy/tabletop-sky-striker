@@ -74,6 +74,8 @@
   const lvText = document.getElementById('lv-text');
   const waveLabel = document.getElementById('wave-label');
   const hpFill = document.getElementById('hp-fill');
+  const hpMeter = document.getElementById('cockpit-hp');
+  const xpMeter = document.getElementById('cockpit-xp');
   const xpFill = document.getElementById('xp-fill');
   const skillDraftDialog = document.getElementById('skill-draft-dialog');
   const cDraftTitle = document.getElementById('c-draft-title');
@@ -160,6 +162,8 @@
     onStatus(info) {
       const dot = document.getElementById('c-dot');
       const txt = document.getElementById('c-status');
+      nukeBtn.disabled = !info.connected;
+      renderPrimaryControl(state.telemetry);
       if (info.connected) {
         dot.classList.add('ok');
         txt.textContent = `${info.roomId} · ${info.transport}${info.rttMs ? ' ' + info.rttMs + 'ms' : ''}`;
@@ -278,6 +282,8 @@
     state.controlMode = 'gyro';
     btnGyro.classList.add('active');
     btnTouch.classList.remove('active');
+    btnGyro.setAttribute('aria-pressed', 'true');
+    btnTouch.setAttribute('aria-pressed', 'false');
     btnZero.hidden = false;
     vibrate(25);
   }
@@ -288,6 +294,8 @@
     state.controlMode = 'touch';
     btnTouch.classList.add('active');
     btnGyro.classList.remove('active');
+    btnTouch.setAttribute('aria-pressed', 'true');
+    btnGyro.setAttribute('aria-pressed', 'false');
     btnZero.hidden = true;
     updateKnobVisual(0, 0);
   });
@@ -550,13 +558,42 @@
     document.querySelectorAll('.coach-target').forEach((el) => el.classList.remove('coach-target'));
     if (!c) return;
     coachBox.classList.toggle('tip', c.kind !== 'tutorial');
-    const head = document.querySelector('.cockpit-top');
-    if (head) coachBox.style.top = `${Math.round(head.getBoundingClientRect().bottom + 6)}px`; // never over pause / return
     document.getElementById('c-coach-title').textContent = c.kind === 'tutorial' ? `🎓 新手引导 ${c.title}` : `💡 ${c.title}`;
     document.getElementById('c-coach-text').textContent = c.text || '';
     const sel = c.kind === 'tutorial' && COACH_TARGETS[c.target];
     const target = sel && document.querySelector(sel);
     if (target) target.classList.add('coach-target');
+  }
+
+  function renderPrimaryControl(t) {
+    if (nukeBtn.disabled) {
+      nukeTitle.textContent = '等待大屏';
+      nukeCount.textContent = '从大屏的扫码入口连接';
+      return;
+    }
+    const phase = t.phase || (t.gameOver ? 'gameover' : 'playing');
+    nukeBtn.classList.remove('empty', 'launch-mode', 'resume-mode');
+    if (phase === 'title') {
+      nukeBtn.classList.add('launch-mode');
+      nukeTitle.textContent = '点火起飞';
+      nukeCount.textContent = '启动大屏航程';
+    } else if (phase === 'gameover') {
+      nukeBtn.classList.add('launch-mode');
+      nukeTitle.textContent = '↻ 再次升空';
+      nukeCount.textContent = '开启新一轮借风航程';
+    } else if (t.paused && t.victoryHold) {
+      nukeBtn.classList.add('resume-mode');
+      nukeTitle.textContent = '♾ 继续无尽航线';
+      nukeCount.textContent = '三幕通关！或点右上「降落结算」';
+    } else if (t.paused) {
+      nukeBtn.classList.add('resume-mode');
+      nukeTitle.textContent = '▶ 继续航程';
+      nukeCount.textContent = '战局已悬停 · 点击恢复';
+    } else {
+      nukeBtn.classList.toggle('empty', (t.nukes || 0) <= 0);
+      nukeTitle.textContent = '☢ 战术核弹';
+      nukeCount.textContent = `剩余 ×${t.nukes ?? 0}`;
+    }
   }
 
   function renderTelemetryUI() {
@@ -565,12 +602,16 @@
     const phase = t.phase || (t.gameOver ? 'gameover' : 'playing');
     const onTitle = phase === 'title';
     const isPlaying = phase === 'playing';
-    const isGameOver = phase === 'gameover';
 
     scoreText.textContent = String(t.score || 0).padStart(7, '0');
     lvText.textContent = `Lv.${t.level || 1} · 火力${t.weaponLv || 1}`;
-    hpFill.style.inlineSize = `${clamp(t.hp ?? 100, 0, 100)}%`;
-    if (xpFill) xpFill.style.inlineSize = `${clamp((t.xpRatio || 0) * 100, 0, 100)}%`;
+    const hp = Math.round(clamp(t.hp ?? 100, 0, 100));
+    const xp = Math.round(clamp((t.xpRatio || 0) * 100, 0, 100));
+    hpFill.style.inlineSize = `${hp}%`;
+    hpMeter.setAttribute('aria-valuenow', String(hp));
+    hpFill.classList.toggle('low', hp <= 30);
+    if (xpFill) xpFill.style.inlineSize = `${xp}%`;
+    xpMeter.setAttribute('aria-valuenow', String(xp));
 
     if (onTitle) {
       waveLabel.textContent = '停机坪待命';
@@ -594,29 +635,7 @@
     btnModeSwitch.textContent = t.mode === 'tabletop' ? '实体压屏' : '虚拟战机';
     btnPureCam.classList.toggle('active', Boolean(t.pureCamera));
 
-    // Smart 4-state Primary Action Button
-    nukeBtn.classList.remove('empty', 'launch-mode', 'resume-mode');
-    if (onTitle) {
-      nukeBtn.classList.add('launch-mode');
-      nukeTitle.textContent = '🚀 点火起飞';
-      nukeCount.textContent = '带桌面小家伙升空';
-    } else if (isGameOver) {
-      nukeBtn.classList.add('launch-mode');
-      nukeTitle.textContent = '↻ 再次升空';
-      nukeCount.textContent = '开启新一轮借风航程';
-    } else if (t.paused && t.victoryHold) {
-      nukeBtn.classList.add('resume-mode');
-      nukeTitle.textContent = '♾ 继续无尽航线';
-      nukeCount.textContent = '三幕通关！或点右上「降落结算」';
-    } else if (t.paused) {
-      nukeBtn.classList.add('resume-mode');
-      nukeTitle.textContent = '▶ 继续航程';
-      nukeCount.textContent = '战局已悬停 · 点击恢复';
-    } else {
-      nukeBtn.classList.toggle('empty', (t.nukes || 0) <= 0);
-      nukeTitle.textContent = '☢ 战术核弹';
-      nukeCount.textContent = `剩余 ×${t.nukes ?? 0}`;
-    }
+    renderPrimaryControl(t);
 
     if (!state.micActive) {
       const pct = Math.round((t.gustReady ?? 1) * 100);

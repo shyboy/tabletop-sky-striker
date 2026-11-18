@@ -3264,7 +3264,13 @@
       const sceneCamY = tabletopCam ? py : this.player.worldY;
       this._lane = this._laneFrame(W, H, sceneCamX, sceneCamY, tabletopCam ? anchorX : W * 0.5, tabletopCam ? anchorY : H * 0.5);
 
-      if (this.scenery) {
+      const art = this.departureArt;
+      if (this.phase === 'title' && !this.calibDrawerOpen && this.rig.skyTheme === 'auto' && art?.complete && art.naturalWidth) {
+        const scale = Math.max(W / art.naturalWidth, H / art.naturalHeight);
+        const width = art.naturalWidth * scale;
+        const height = art.naturalHeight * scale;
+        ctx.drawImage(art, (W - width) * 0.78, (H - height) * 0.38, width, height);
+      } else if (this.scenery) {
         const corridorOff = ((this._laneCamX ?? sceneCamX) - sceneCamX) * LANE_PF;
         this.scenery.render(ctx, {
           W,
@@ -3396,7 +3402,7 @@
       if (!this.rig.pureCamera && this.phase !== 'title') {
         this._renderMinimalHUD(ctx, W, H);
         if (this.roguelite && this.phase === 'playing' && !this.boss) {
-          this.roguelite.renderHudBar(ctx, W, H, this.hudTop, this._hudAlpha ?? 1);
+          this.roguelite.renderHudBar(ctx, W, H, this.hudTop + this._hudPanelH() - 18, this._hudAlpha ?? 1, this._hudPanelW(W));
         }
         this._renderBossBar(ctx, W);
         this._renderStoryBanner(ctx, W);
@@ -3885,7 +3891,7 @@
 
         // Subtle label pill when not covered by CAD top ruler
         if (!this.calibDrawerOpen) {
-          const tip = onTitle ? '▲ 桌面停机坪 · 把小车/纸飞机/橡皮放进框内' : '▲ 机头朝前 · 实物校准框';
+          const tip = onTitle ? '▲ 停机坪 · 机头朝上' : '▲ 机头朝前 · 实物校准框';
           ctx.font = '700 12px system-ui, -apple-system, sans-serif';
           const tw = ctx.measureText(tip).width + 18;
           ctx.fillStyle = `rgba(7, 20, 38, ${(a * 0.68).toFixed(2)})`;
@@ -4718,11 +4724,12 @@
     }
 
     _hudPanelW(W) {
-      return W < 560 ? 172 : 196;
+      return W < 560 ? 184 : 204;
     }
 
     _hudPanelH() {
-      return (this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
+      const rows = (this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
+      return rows + (this.roguelite ? 18 : 0);
     }
 
     // Boss bar and banners sit beside the score panel on wide screens, beneath it on narrow ones
@@ -4787,8 +4794,8 @@
 
       ctx.save();
       ctx.globalAlpha = this._hudAlpha;
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.42)';
-      this._roundRectPath(ctx, x0, y0, panelW, panelH, 12);
+      ctx.fillStyle = 'rgba(8, 36, 42, 0.84)';
+      this._roundRectPath(ctx, x0, y0, panelW, panelH, 8);
       ctx.fill();
       ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
       ctx.shadowBlur = 3;
@@ -4808,14 +4815,21 @@
       // Row 2: hull bar + shield pips
       ctx.shadowBlur = 0;
       const pipsW = 26;
-      const barW = panelW - 20 - pipsW;
+      const barX = L + 29;
+      const barW = R - pipsW - barX;
       const frac = clamp(p.hp / p.maxHp, 0, 1);
+      ctx.textAlign = 'left';
+      ctx.font = '650 10px system-ui, sans-serif';
+      ctx.fillStyle = '#d7e7df';
+      ctx.fillText('机体', L, y0 + 32);
       ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-      this._roundRectPath(ctx, L, y0 + 25, barW, 6, 3);
+      this._roundRectPath(ctx, barX, y0 + 25, barW, 6, 3);
       ctx.fill();
       ctx.fillStyle = this.rig.godMode ? '#fde047' : (frac > 0.6 ? '#38bdf8' : (frac > 0.3 ? '#facc15' : '#ef4444'));
-      this._roundRectPath(ctx, L, y0 + 25, Math.max(4, barW * frac), 6, 3);
-      ctx.fill();
+      if (frac > 0) {
+        this._roundRectPath(ctx, barX, y0 + 25, Math.max(2, barW * frac), 6, 3);
+        ctx.fill();
+      }
       for (let k = 0; k < 2; k++) {
         ctx.strokeStyle = '#67e8f9';
         ctx.lineWidth = 1.4;
@@ -4840,11 +4854,11 @@
       }
       ctx.font = '700 11px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = p.droneCount > 0 ? '#6ee7b7' : '#64748b';
-      ctx.fillText(`D${p.droneCount}`, L + 52, ry);
+      ctx.fillText(`僚${p.droneCount}`, L + 54, ry);
       ctx.fillStyle = p.nukes > 0 ? '#fb923c' : '#64748b';
-      ctx.fillText(`N${p.nukes}`, L + 76, ry);
+      ctx.fillText(`核${p.nukes}`, L + 81, ry);
       const gustPct = p.gustCooldown <= 0 ? 1 : 1 - p.gustCooldown / p.gustMaxCooldown;
-      const gx = L + 112;
+      const gx = L + 119;
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
@@ -4885,7 +4899,7 @@
       }
 
       // Row 5 (only while active): medal chain and lung gauge
-      if (panelH > 70) {
+      if (panelH - (this.roguelite ? 18 : 0) > 70) {
         const r5 = y0 + 77;
         ctx.textAlign = 'left';
         ctx.font = '700 10px system-ui, -apple-system, sans-serif';

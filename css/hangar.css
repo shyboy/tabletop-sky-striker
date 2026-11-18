@@ -1,0 +1,336 @@
+/* Hangar masthead and the paper preflight card sit outside the physical toy area. */
+.host-view {
+  --gutter: clamp(20px, 5.3vw, 100px);
+  --mast-top: max(10px, env(safe-area-inset-top, 0px));
+  --title-top: calc(var(--mast-top) + 64px);
+}
+.title-only { display: none; }
+.phase-title .top-bar {
+  inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px));
+  top: var(--mast-top);
+  min-height: 3.6rem;
+  padding-bottom: .55rem;
+  border-bottom: 1px solid #edf1d44f;
+  flex-wrap: nowrap;
+  gap: .5rem;
+}
+.phase-title .mast-brand {
+  display: inline-flex;
+  margin-inline-end: auto;
+  color: var(--paper);
+  text-shadow: 0 1px 6px #09262c;
+  pointer-events: none;
+}
+.host-view .pill-btn {
+  min-height: 40px;
+  gap: .44rem;
+  border-color: #ecedcf5e;
+  border-radius: .55rem;
+  padding: .42rem .76rem;
+  background: #103237e8;
+  color: var(--paper);
+  box-shadow: none;
+}
+.host-view .pill-btn:hover { background: #235257; border-color: var(--sea-glass); }
+.host-view .pair-control { background: #f8eedb; color: var(--ink); border-color: #f8eedb; }
+.host-view .pair-control:hover { background: #fff9ed; border-color: #fff9ed; }
+.pair-control .status-dot { background: #a65328; }
+.pair-control .status-dot.connected { background: #187350; }
+.nav-symbol { font: 700 1.08rem/1 var(--console-sans); }
+#btn-mute[aria-pressed="false"] .nav-symbol { text-decoration: line-through; opacity: .75; }
+.phase-title #stage-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(90deg, #062a31b0, #05283265 34%, transparent 54%),
+              linear-gradient(to bottom, #0b293844, transparent 17%);
+}
+.host-view.inspector-open #stage-wrap::after,
+.phase-title #stage-wrap:has(#title-overlay[hidden])::after { display: none; }
+#title-overlay {
+  position: fixed;
+  z-index: 14;
+  inset-block: var(--title-top) max(1rem, env(safe-area-inset-bottom, 0px));
+  left: max(var(--gutter), env(safe-area-inset-left, 0px));
+  width: min(26rem, calc(50vw - var(--gutter) - var(--pad-half, 76px)));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(.65rem, 1.9dvh, 1.2rem);
+  pointer-events: none;
+}
+#title-overlay > * { flex-shrink: 0; }
+.flight-head, .flight-route, .flight-records { color: var(--paper); text-shadow: 0 2px 8px #06282ce6; }
+.project-name {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  margin: 0 0 .45rem;
+  color: #ffe0aa;
+  font: 700 clamp(.66rem, 1vw, .78rem)/1.3 var(--console-mono);
+  letter-spacing: .18em;
+}
+.project-name::before { content: ""; width: 1.9rem; height: 2px; background: currentColor; }
+#main-story-title {
+  margin: 0;
+  font: 800 clamp(3.35rem, 5.3vw, 5.25rem)/1.11 "STSong", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  letter-spacing: .045em;
+}
+.flight-story { margin: .65rem 0 .2rem; font-size: clamp(.84rem, 1.15vw, 1.04rem); line-height: 1.6; }
+#title-overlay .departure-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  border-radius: .85rem;
+  background: var(--paper);
+  color: var(--ink);
+  color-scheme: light;
+  border: 1px solid #f9eaca;
+  box-shadow: 0 12px 38px #06232942;
+  pointer-events: auto;
+}
+.departure-fields {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #83948b transparent;
+  overscroll-behavior: contain;
+  padding: 1.08rem 1.18rem .2rem;
+}
+.flight-label { margin: 0 0 .7rem; font: 750 .9rem/1.2 var(--console-sans); }
+.flight-modes { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+.mode-card-btn {
+  display: grid;
+  grid-template-columns: 23px 1fr;
+  align-items: center;
+  column-gap: .42rem;
+  row-gap: .18rem;
+  min-width: 0;
+  min-height: 60px;
+  padding: .62rem .5rem;
+  text-align: left;
+  color: #355253;
+  background: #fffaf0;
+  border: 1px solid #b8c0af;
+  border-radius: .5rem;
+  cursor: pointer;
+}
+.mode-icon {
+  grid-row: 1 / 3;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+.mode-card-btn strong { font-size: .94rem; line-height: 1.25; }
+.mode-card-btn small { color: #516665; font-size: .72rem; line-height: 1.3; }
+.mode-card-btn.active { background: #153f43; border-color: #153f43; color: #fff6df; }
+.mode-card-btn.active small { color: #d2e6d9; }
+.mode-card-btn.active .mode-icon { color: var(--sun); }
+.departure-card :where(button, input, summary):focus-visible { outline: 3px solid #b74b25; outline-offset: 2px; }
+.departure-card button:hover { filter: brightness(.96); }
+.helipad-guide { margin: .62rem 0 .48rem; color: #435859; font-size: .78rem; line-height: 1.5; }
+.flight-options { border-top: 1px solid #c4ccbc; }
+.flight-options > summary {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 42px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 650;
+  font-size: .84rem;
+}
+.flight-options > summary::-webkit-details-marker { display: none; }
+.flight-options > summary::after {
+  content: "";
+  width: .43rem;
+  height: .43rem;
+  margin-inline: .3rem;
+  border: solid #425e5d;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-2px) rotate(45deg);
+}
+.flight-options[open] > summary::after { transform: translateY(2px) rotate(225deg); }
+#flight-option-summary { margin-left: auto; color: #556962; font-size: .77rem; font-weight: 500; }
+.choice-fields { display: grid; gap: .4rem; padding: .12rem .15rem .65rem; }
+.choice-line, .callsign {
+  display: grid;
+  grid-template-columns: 2rem repeat(3, minmax(0, 1fr));
+  gap: .3rem;
+  align-items: center;
+  color: #475d59;
+  font-size: .77rem;
+}
+.choice-line button, .callsign input {
+  background: #fffcf4;
+  color: #254847;
+  border: 1px solid #bcc5b6;
+  border-radius: .34rem;
+  min-height: 34px;
+  padding: .23rem;
+  font: 600 .79rem/1.25 var(--console-sans);
+}
+.choice-line button span { display: block; font-size: .66rem; font-weight: 400; }
+.choice-line button.active { background: #d3e8dd; border-color: #32685e; color: #163c35; box-shadow: inset 0 0 0 1px #32685e; }
+.callsign { grid-template-columns: 2rem 1fr; }
+.callsign input { width: 100%; padding-inline: .5rem; font-weight: 500; }
+.launch-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .55rem;
+  flex: 0 0 auto;
+  padding: .75rem 1.18rem .9rem;
+  border-top: 1px dashed #b7b7a6;
+  background: #f2e9d5;
+}
+.launch-actions button { min-height: 44px; border-radius: .43rem; font-weight: 750; cursor: pointer; }
+.launch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .25rem;
+  padding: .48rem .85rem;
+  border: 1px solid #92351e;
+  background: var(--ember);
+  color: #fff9ee;
+  font-size: .98rem;
+}
+.launch-btn > :last-child { font: 500 1.25rem/1 var(--console-sans); }
+.calibrate-btn { background: transparent; border: 1px solid #a9b3a4; color: var(--ink); padding-inline: .7rem; font-size: .82rem; }
+.flight-route {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  margin: .15rem 0 0;
+  list-style: none;
+  font-size: .8rem;
+  font-weight: 600;
+}
+.flight-route li { display: inline-flex; align-items: center; white-space: nowrap; }
+.flight-route li::before { content: ""; display: inline-block; width: .47rem; height: .47rem; border: 1.5px solid #e4e4c9; border-radius: 50%; margin-right: .32rem; }
+.flight-route li:first-child::before { background: var(--sun); border-color: var(--sun); }
+.flight-route li + li::before { margin-left: .32rem; }
+.flight-route li:not(:last-child)::after { content: ""; width: clamp(.6rem, 1.6vw, 1.75rem); border-top: 1px dashed #efe7c4ad; margin-left: .38rem; }
+.flight-records { display: flex; flex-wrap: wrap; gap: .24rem .8rem; font-size: .74rem; line-height: 1.45; color: #e5eade; }
+@media (pointer: coarse) {
+  .choice-line button, .flight-options > summary, .host-view .pill-btn { min-height: 44px; }
+  .callsign input { font-size: 1rem; }
+}
+@media (orientation: portrait) and (max-width: 900px) {
+  .host-view { --gutter: clamp(12px, 3vw, 26px); --title-top: calc(var(--mast-top) + 62px); }
+  .phase-title #stage-wrap::after { background: linear-gradient(180deg, #052c37c9, #092d3152 45%, transparent 68%); }
+  #title-overlay {
+    top: var(--title-top);
+    bottom: auto;
+    width: min(28rem, calc(100% - 2 * var(--gutter)));
+    max-height: max(10.5rem, calc(var(--pad-top, 65dvh) - var(--title-top)));
+    justify-content: flex-start;
+    gap: .65rem;
+  }
+  #main-story-title { font-size: clamp(2.8rem, 8vw, 4.2rem); }
+  .flight-story { margin-top: .25rem; font-size: .84rem; }
+  .flight-records { font-size: .7rem; }
+}
+@media (max-width: 610px) {
+  .phase-title .top-bar { gap: .27rem; }
+  .phase-title .mast-brand { font-size: .93rem; gap: .42rem; }
+  .mast-brand small { font-size: .5rem; }
+  .mast-brand .wing-mark { width: 1.65rem; height: 1.65rem; }
+  .phase-title .pill-btn { justify-content: center; min-width: 40px; padding: .35rem .44rem; gap: .25rem; }
+  .phase-title .nav-label { display: none; }
+  .phase-title .pair-control { font-size: .76rem; }
+  .flight-route { font-size: .74rem; }
+}
+@media (max-height: 720px) {
+  #title-overlay { gap: .47rem; }
+  .project-name { font-size: .6rem; margin-bottom: .2rem; }
+  #main-story-title { font-size: clamp(2.4rem, 4.2vw, 3.5rem); }
+  .flight-story { margin: .2rem 0; }
+  .departure-fields { padding: .65rem .8rem .1rem; }
+  .launch-actions { padding: .52rem .8rem .65rem; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .host-view { --gutter: max(12px, 2vw); --mast-top: max(4px, env(safe-area-inset-top, 0px)); --title-top: calc(var(--mast-top) + 48px); }
+  .phase-title .top-bar { min-height: 42px; padding-bottom: .15rem; }
+  #title-overlay { width: min(25rem, calc(50vw - var(--gutter) - var(--pad-half, 64px))); bottom: max(5px, env(safe-area-inset-bottom, 0px)); gap: .32rem; }
+  .flight-head { display: flex; align-items: baseline; gap: .55rem; }
+  .project-name, .flight-story, .flight-route { display: none; }
+  #main-story-title { font-size: 1.8rem; }
+  .mode-card-btn { min-height: 44px; padding-block: .3rem; }
+  .departure-fields { padding-top: .45rem; }
+  .flight-label, .helipad-guide { margin-block: .3rem; }
+}
+@media (orientation: portrait) and (max-height: 720px) {
+  .project-name, .flight-route, .flight-story { display: none; }
+  .flight-label { margin-bottom: .4rem; }
+  .mode-card-btn { min-height: 45px; padding-block: .35rem; }
+}
+@media (max-width: 350px) {
+  .mast-brand small, .phase-title .mast-brand .wing-mark { display: none; }
+  .mode-card-btn { column-gap: .25rem; }
+}
+
+/* Flight overlays share the instrument panel finish. Menus can scroll independently of the stage. */
+.host-view .state-overlay { background: #061c24a6; backdrop-filter: blur(4px); }
+.host-view .state-card {
+  border-radius: .88rem;
+  border: 1px solid #597574;
+  border-top: 3px solid var(--sun);
+  background: #102e35;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.state-card h2 { color: var(--paper); font-size: clamp(1.3rem, 2.6vw, 1.75rem); }
+.state-card .state-badge { padding-inline: 0; background: transparent; border: 0; color: var(--sun); }
+.state-card .stat-cell { background: #0a242b; border-color: #375358; border-radius: .5rem; }
+.state-card .stat-cell strong { font-variant-numeric: tabular-nums; color: #f6ecd5; }
+.host-view .btn-block { min-height: 43px; border-color: #526d6d; background: #1a393e; }
+.host-view .btn-block.primary { color: #153333; border-color: #ffd394; background: var(--sun); }
+.host-view .btn-block.danger { background: transparent; color: #ffc7b7; border-color: #846163; }
+.host-view .quick-btn, .host-view .seg-btn, .host-view .close-btn { background: #19373d; color: var(--text-main); border-color: #526b6b; }
+.host-view .seg-btn.active, .host-view .tab-btn.active { color: #fff1d4; background: #4e4533; border-color: #cc9b61; }
+.host-view .quick-btn:hover, .host-view .close-btn:hover { border-color: var(--sun); }
+.host-view dialog#setup-dialog { background: #0e2a31f5; }
+.host-view .coach-card { border-left: 3px solid var(--sun); background: #0c2c33eb; }
+.host-view .coach-card.tip { border-left-color: var(--sea-glass); }
+.host-view .pause-fab { border-color: #a9c3b5; background: #14383dec; color: var(--paper); }
+#help-overlay[open] { position: fixed; inset: 0; box-sizing: border-box; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border: 0; color: var(--text-main); }
+#help-overlay::backdrop { background: transparent; }
+.host-view #help-overlay .help-card { width: min(44rem, 100%); }
+.help-top { position: sticky; top: -1px; margin-top: -.3rem; padding-block: .4rem; z-index: 1; background: #102e35; }
+@media (pointer: coarse) {
+  .state-card button, .host-view #setup-dialog button { min-height: 44px; }
+}
+@media (max-width: 760px) {
+  #btn-dock-side { display: none; }
+  .host-view dialog#setup-dialog:has(#tab-btn-pair[aria-selected="true"]) { max-height: calc(100dvh - 1.5rem); }
+}
+.phase-title .pair-control { max-width: min(44vw, 21rem); }
+#conn-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pair-control .status-dot { flex-shrink: 0; }
+
+.voyage-result.stat-cell { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .8rem; }
+.result-score, .result-record { display: flex; flex-direction: column; gap: .15rem; }
+.result-record { align-items: flex-end; font-size: .73rem; }
+#go-score { font: 700 clamp(1.15rem, 4vw, 1.65rem)/1.2 var(--console-mono); color: var(--sun); }
+#go-skills-box { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .3rem; }
+#roguelite-draft-dialog .rg-shell { background: #102c34; max-height: 90dvh; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; }
+#roguelite-draft-dialog .rg-card { flex-shrink: 0; }
+#roguelite-draft-dialog .rg-title { background: none; color: var(--paper); }
+#roguelite-draft-dialog .rg-kicker { color: var(--sun); }
+#roguelite-draft-dialog .rg-card:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+.choice-line button { cursor: pointer; }
+
+@media (orientation: portrait) and (max-width: 900px) {
+  .flight-route, .flight-records { align-self: flex-start; background: #0a3039dc; border-radius: .27rem; padding: .2rem .42rem; text-shadow: none; }
+}

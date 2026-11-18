@@ -1,0 +1,71 @@
+/* Flight deck materials shared by the host, the cockpit and the ground crew. */
+:root {
+  --ink: #123637;
+  --petrol: #0d3239;
+  --instrument: #112e35;
+  --instrument-light: #193c41;
+  --edge-line: #416267;
+  --paper: #faf3e1;
+  --paper-muted: #cecbbb;
+  --sea-glass: #93ded0;
+  --sun: #ffbe69;
+  --ember: #af4327;
+  --console-mono: "IBM Plex Mono", Consolas, "SFMono-Regular", monospace;
+  --console-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --cyan: var(--sea-glass);
+  --amber: var(--sun);
+  --panel-border: #436268;
+  --panel-solid: #102d34;
+  --panel-surface: #112e35;
+  --text-hi: #f8f4e8;
+  --text-main: #f8f4e8;
+  --text-muted: #d2e1dc;
+  --text-dim: #b3cbc8;
+  --accent-amber: var(--sun);
+  --accent-cyan: var(--sea-glass);
+  --scrollbar-thumb: #71978f;
+  --scrollbar-track: #112c32;
+}
+body { font-family: var(--console-sans); }
+button, input, select, summary { font-family: inherit; }
+:where(button, summary, a, input, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--sun);
+  outline-offset: 3px;
+}
+.wing-mark {
+  display: inline-block;
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 1px solid #f9d8a3;
+  border-radius: 50%;
+  color: var(--sun);
+}
+.wing-mark::before, .wing-mark::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+.wing-mark::before { inset: 22% 12% 22% 15%; clip-path: polygon(0 48%,100% 0,39% 100%,36% 62%,78% 20%,30% 54%); }
+.wing-mark::after { inset: 53% 54% 23% 20%; clip-path: polygon(0 9%,100% 0,100% 45%,14% 78%); opacity: .72; }
+.mast-brand, .station-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .65rem;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: .04em;
+}
+.mast-brand small, .station-brand small {
+  display: block;
+  margin-top: .25rem;
+  color: #cbddd5;
+  font: 600 .61rem/1 var(--console-mono);
+  letter-spacing: .12em;
+}
+.status-dot, .dot { background: var(--sun); box-shadow: none; }
+.status-dot.connected, .dot.ok { background: #92e8ba; box-shadow: 0 0 0 3px #92e8ba28; }
+@media (prefers-reduced-motion: reduce) {
+  :where(button, dialog, .c-coach, .coach-card) { transition-duration: 0s; }
+}
