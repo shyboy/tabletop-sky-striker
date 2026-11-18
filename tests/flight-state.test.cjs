@@ -20,6 +20,58 @@ function createFlight(localStorage) {
   return { engine, setTime: (time) => { now = time; }, railShots: () => railShots };
 }
 
+function advance(engine, frames) {
+  for (let i = 0; i < frames; i++) engine.step(1 / 60);
+}
+
+test('tabletop forward input accelerates the scenery and returns smoothly to cruise', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  let scrollSpeed;
+  engine.scenery = { step: (_dt, state) => { scrollSpeed = state.scrollSpeed; } };
+  engine.setRemoteInput({ vy: -0.5, firing: false });
+  advance(engine, 20);
+  assert.ok(engine.player.cruiseSpeed > 620 && engine.player.cruiseSpeed < 650);
+
+  engine.setRemoteInput({ vy: -1 });
+  advance(engine, 20);
+  assert.ok(engine.player.cruiseSpeed > 870);
+  assert.equal(scrollSpeed, engine.player.cruiseSpeed);
+  assert.equal(engine.player.screenY, engine.height * engine.rig.anchorY);
+  engine.setRemoteInput({ vy: 0 });
+  advance(engine, 1);
+  assert.ok(engine.player.cruiseSpeed > 310 && engine.player.cruiseSpeed < 870);
+  advance(engine, 59);
+  assert.ok(Math.abs(engine.player.cruiseSpeed - 310) < 1);
+  engine.setRemoteInput({ vy: 1 });
+  advance(engine, 60);
+  assert.ok(Math.abs(engine.player.cruiseSpeed - 155) < 1);
+});
+
+test('arcade forward movement is faster and reverse uses its existing ceiling', () => {
+  const { engine } = createFlight();
+  engine.updateRig({ mode: 'arcade' }, false);
+  engine.startMission({ tutorial: false });
+  engine.keys.add('KeyW');
+  advance(engine, 20);
+  assert.ok(engine.player.vy < -640);
+  assert.ok(engine.player.screenY < 430);
+  engine.keys.delete('KeyW');
+  engine.keys.add('KeyS');
+  advance(engine, 40);
+  assert.ok(Math.abs(engine.player.vy - 480) < 1);
+});
+
+test('a medal pulled from behind still reaches the toy at maximum forward speed', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine.setRemoteInput({ vy: -1, firing: false });
+  advance(engine, 35);
+  engine._spawnPowerup(engine.player.worldX, engine.player.worldY + 130, 'medal');
+  advance(engine, 12);
+  assert.equal(engine.medalsCollected, 1);
+});
+
 const REMOTE_CONTROLS = { vx: 0.8, vy: -0.6, firing: true, railCharge: 1, micLevel: 0.5 };
 const NEUTRAL_CONTROLS = { vx: 0, vy: 0, firing: false, railCharge: 0, micLevel: 0 };
 

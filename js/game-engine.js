@@ -1459,10 +1459,14 @@
         p.screenY = this.height * this.rig.anchorY;
 
         p.vx = lerp(p.vx, inp.vx * maxLatSpeed, 1 - Math.exp(-dt * 12));
-        const targetCruise = inp.vy < 0
-          ? lerp(310, 610, -inp.vy)
+        const forward = Math.max(0, -inp.vy);
+        // Give partial stick travel more throttle while keeping the response smooth at neutral.
+        const throttle = forward + 0.35 * forward * (1 - forward);
+        const targetCruise = forward > 0
+          ? lerp(310, 880, throttle)
           : lerp(310, 155, inp.vy);
-        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * 8));
+        const response = forward > 0 && p.cruiseSpeed < targetCruise ? 14 : 8;
+        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * response));
         p.vy = -p.cruiseSpeed;
 
         p.worldX += p.vx * dt;
@@ -1474,7 +1478,8 @@
         p.cameraRoll = 0;
         p.cruiseSpeed = 280;
         p.vx = lerp(p.vx, inp.vx * 520 * this.traits.lateral, 1 - Math.exp(-dt * 14));
-        p.vy = lerp(p.vy, inp.vy * 480, 1 - Math.exp(-dt * 14));
+        const verticalSpeed = inp.vy < 0 ? 650 : 480;
+        p.vy = lerp(p.vy, inp.vy * verticalSpeed, 1 - Math.exp(-dt * 14));
         const halfW = 34;
         p.screenX = clamp(p.screenX + p.vx * dt, halfW, this.width - halfW);
         p.screenY = clamp(p.screenY + p.vy * dt, 56, this.height - 48);
@@ -2922,7 +2927,7 @@
         if (pw.magnet) {
           const ang = Math.atan2(py - pw.y, px - pw.x);
           pw.x += Math.cos(ang) * 640 * dt;
-          pw.y += Math.sin(ang) * 640 * dt;
+          pw.y += (Math.sin(ang) * 640 + worldVyOffset) * dt;
         } else {
           pw.vy = Math.min(135, pw.vy + 180 * dt);
           pw.vx *= Math.exp(-dt * 1.5);
