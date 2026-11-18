@@ -1817,7 +1817,7 @@
             <span>实物宽度（两侧浮游僚机间距）</span>
             <strong id="val-width">86 px</strong>
           </label>
-          <input type="range" id="rng-width" class="calib-slider" min="36" max="220" value="86">
+          <input type="range" id="rng-width" class="calib-slider" min="36" max="240" value="86">
         </div>
 
         <div class="field-row">
@@ -1825,7 +1825,7 @@
             <span>实物长度（机头炮口与尾部喷焰）</span>
             <strong id="val-length">118 px</strong>
           </label>
-          <input type="range" id="rng-length" class="calib-slider" min="44" max="260" value="118">
+          <input type="range" id="rng-length" class="calib-slider" min="44" max="280" value="118">
         </div>
 
         <div class="field-row">
@@ -1833,7 +1833,7 @@
             <span>屏幕纵向锚点（上下移动停机坪）</span>
             <strong id="val-anchor">75%</strong>
           </label>
-          <input type="range" id="rng-anchor" class="calib-slider" min="55" max="85" value="75">
+          <input type="range" id="rng-anchor" class="calib-slider" min="52" max="86" value="75">
         </div>
 
         <div class="field-row">
@@ -1864,10 +1864,11 @@
 
         <div class="qr-stage">
           <div id="qr-box" aria-live="polite"></div>
-          <div id="link-live-status" class="hint-note" style="text-align:center;">
+          <div id="link-live-status" class="hint-note" role="status" style="text-align:center;">
             等待手机扫码接入（打开相机或浏览器扫上方二维码即可无线配对）
           </div>
         </div>
+        <p class="hint-note" id="qr-address-help"></p>
 
         <div id="lan-options-wrap" class="field-row" hidden>
           <div class="field-label">
@@ -1875,7 +1876,7 @@
           </div>
           <select id="host-select"></select>
           <p class="hint-note" id="https-tip">
-            触屏摇杆、磁轨炮和核弹走 HTTP 秒连；若需手机<strong>陀螺仪体感</strong>或<strong>麦克风吹气</strong>，请切为 HTTPS 地址（首次在手机浏览器点“高级 → 继续访问”）。
+            HTTP 可用触屏摇杆和点按顺风。要使用<strong>陀螺仪体感</strong>或<strong>麦克风吹气</strong>，可选择 HTTPS。能否启用取决于手机浏览器的证书信任和权限设置。
           </p>
         </div>
 
@@ -1990,6 +1991,8 @@
       const valLength = document.getElementById('val-length');
       const valAnchor = document.getElementById('val-anchor');
       const modeBtnLabel = document.getElementById('mode-btn-label');
+      const dockRail = document.getElementById('dock-rail');
+      let dockRailPointer = null;
 
       const sfx = new window.SoundFX();
       let bridge = null;
@@ -2016,6 +2019,7 @@
       let lastState = null;
       let lastCoach = null;
       let controllerOnline = false;
+      let hasPairedCockpit = false;
       const coarsePointer = Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
       const coachCard = document.getElementById('coach-card');
       const coachBadge = document.getElementById('coach-badge');
@@ -2072,6 +2076,7 @@
       function syncDock() {
         const st = lastState;
         const show = Boolean(st && st.phase === 'playing' && !st.paused && coarsePointer && !controllerOnline && !st.pureCamera);
+        if (!show) finishDockRail(false);
         touchDock.hidden = !show;
         document.body.classList.toggle('has-dock', show);
         if (st) document.getElementById('dock-nuke-n').textContent = `×${st.nukes ?? 0}`;
@@ -2287,9 +2292,9 @@
       });
 
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden && engine && engine.phase === 'playing') {
-          engine.setManualPause(true);
-        }
+        if (!document.hidden || !engine) return;
+        engine.clearRemoteInput();
+        if (engine.phase === 'playing') engine.setManualPause(true);
       });
 
       // Battlefield snapshot taken the moment a voyage ends, for the keepsake card
@@ -2301,7 +2306,7 @@
           if (bridge) bridge.send('telemetry', telemetry);
           if (typeof telemetry.gustReady === 'number') {
             document.getElementById('dock-gust').classList.toggle('cooling', telemetry.gustReady < 1);
-            document.getElementById('dock-rail').classList.toggle('cooling', telemetry.railReady === 0);
+            dockRail.classList.toggle('cooling', telemetry.railReady === 0);
             document.getElementById('dock-nuke').classList.toggle('cooling', !telemetry.nukes);
           }
         },
@@ -2330,8 +2335,12 @@
       bridge = new window.LinkBridge({
         role: 'host',
         roomId,
-        onMessage(type, payload) {
+        onMessage(type, payload, { from }) {
+          if (from !== 'controller' && type !== 'crew' && type !== 'requestState') return;
           if (type === 'input') {
+            if (payload && typeof payload.calibOpen === 'boolean') {
+              engine.setSetupPause(payload.calibOpen, 'controller');
+            }
             engine.setRemoteInput(payload);
           } else if (type === 'railgunFire') {
             engine.triggerRailgun(payload && payload.power ? payload.power : 1);
@@ -2344,18 +2353,15 @@
           } else if (type === 'updateRig') {
             engine.updateRig(payload || {}, true);
           } else if (type === 'calibFocus') {
-            engine.setSetupPause(Boolean(payload && payload.open));
+            engine.setSetupPause(Boolean(payload && payload.open), 'controller');
           } else if (type === 'startMission' || type === 'restart') {
             sfx.unlock();
             if (dialog.open) dialog.close();
             engine.startMission();
           } else if (type === 'togglePause') {
-            if (dialog.open) dialog.close();
-            else engine.toggleManualPause();
+            engine.toggleManualPause();
           } else if (type === 'setPause') {
-            const wantPause = Boolean(payload && payload.paused);
-            if (!wantPause && dialog.open) dialog.close();
-            engine.setManualPause(wantPause);
+            engine.setManualPause(Boolean(payload && payload.paused));
           } else if (type === 'crew') {
             engine.crewAction(payload && payload.action, payload || {});
           } else if (type === 'finishVoyage') {
@@ -2366,10 +2372,14 @@
             engine.stopToTitle();
           } else if (type === 'pickSkill') {
             sfx.unlock();
-            if (payload && typeof payload.index === 'number') engine.pickSkill(payload.index);
+            if (!payload || !engine.pickOfferedSkill(payload.version, payload.cardId)) {
+              bridge.send('hostState', engine.getPublicState());
+            }
           } else if (type === 'rerollSkills') {
             sfx.unlock();
-            engine.rerollSkills();
+            if (typeof payload?.version !== 'string' || !engine.rerollSkills(payload.version)) {
+              bridge.send('hostState', engine.getPublicState());
+            }
           } else if (type === 'requestState') {
             bridge.send('hostState', engine.getPublicState());
           }
@@ -2378,32 +2388,36 @@
           const dot = document.getElementById('conn-dot');
           const txt = document.getElementById('conn-text');
           const live = document.getElementById('link-live-status');
-          controllerOnline = Boolean(info.connected && info.controllerConnected !== false);
-          document.getElementById('pause-fab-dot').classList.toggle('connected', Boolean(info.connected));
+          const wasControllerOnline = controllerOnline;
+          controllerOnline = Boolean(info.controllerConnected);
+          const crewOnline = Boolean(info.crewConnected);
+          if (wasControllerOnline && !controllerOnline) {
+            engine.clearRemoteInput();
+            engine.setSetupPause(false, 'controller');
+          }
+          if (!crewOnline) engine.crewOnline = false;
+          hasPairedCockpit ||= controllerOnline;
+          const anyConnected = controllerOnline || crewOnline;
+          dot.classList.toggle('connected', anyConnected);
+          document.getElementById('pause-fab-dot').classList.toggle('connected', anyConnected);
           renderCoach(lastCoach);
           syncDock();
-          if (info.connected) {
-            dot.classList.add('connected');
+          let status;
+          if (controllerOnline) {
             const rtt = info.rttMs ? ` · ${info.rttMs}ms` : '';
-            const crewTag = info.crewConnected ? ' · 地勤在线' : '';
-            txt.textContent = info.controllerConnected === false && info.crewConnected
-              ? `地勤已连 (${info.transport})`
-              : `座舱已连 (${info.transport}${rtt})${crewTag}`;
-            if (!info.crewConnected) engine.crewOnline = false;
-            titleConnPill.textContent = `✅ 手机座舱已就绪 (${info.transport})`;
-            titleConnPill.style.color = '#4ade80';
-            live.textContent = `✅ 手机座舱已连接（通道：${info.transport}${rtt}），可切到左上方「底座实时校准」或直接开飞！`;
-            live.style.color = '#4ade80';
+            const crewTag = crewOnline ? ' · 地勤在线' : '';
+            txt.textContent = `座舱已连 (${info.transport}${rtt})${crewTag}`;
+            titleConnPill.textContent = `座舱已就绪${crewTag}`;
+            status = `驾驶座舱已连接（${info.transport}${rtt}）${crewTag}。现在可以校准或起飞。`;
           } else {
-            dot.classList.remove('connected');
-            txt.textContent = `手机扫码 (${roomId})`;
-            titleConnPill.textContent = `房间 ${roomId} · 可扫码连手机或直接起飞`;
-            titleConnPill.style.color = '';
-            live.textContent = /\.github\.io$/i.test(location.hostname)
-              ? '等待手机扫码接入（HTTPS 公网支持 WebRTC 直连，自动解锁陀螺仪与吹气清屏）'
-              : '等待手机扫码接入（本地模式请确保手机与本机在同一 Wi-Fi / 热点）';
-            live.style.color = '';
+            txt.textContent = crewOnline ? '地勤在线 · 座舱待连' : `手机扫码 (${roomId})`;
+            titleConnPill.textContent = crewOnline ? '地勤已连接 · 等待驾驶手机' : `房间 ${roomId} · 可扫码连手机或直接起飞`;
+            const waiting = hasPairedCockpit ? '驾驶座舱已断开，可打开原链接重连。' : '等待驾驶座舱连接。';
+            status = crewOnline ? `地勤已连接。${waiting}` : waiting;
           }
+          titleConnPill.style.color = controllerOnline ? '#4ade80' : '';
+          live.style.color = controllerOnline ? '#4ade80' : '';
+          if (live.textContent !== status) live.textContent = status;
         }
       });
       bridge.start();
@@ -2411,55 +2425,80 @@
       // Build QR & LAN Endpoints
       const roomBadge = document.getElementById('room-code-badge');
       const qrBox = document.getElementById('qr-box');
+      const crewQRBox = document.getElementById('crew-qr-box');
+      const addressHelp = document.getElementById('qr-address-help');
       const urlInput = document.getElementById('controller-url-input');
       const hostSelect = document.getElementById('host-select');
       const lanWrap = document.getElementById('lan-options-wrap');
       roomBadge.textContent = `ROOM ${roomId}`;
 
-      function updateQRForBase(baseOrigin) {
-        const ctrlUrl = new URL('./controller.html', baseOrigin + location.pathname);
+      function isLocalOnly(url) {
+        return url.protocol === 'file:' || /^(localhost|127\.[\d.]+|0\.0\.0\.0|\[::1\])$/i.test(url.hostname);
+      }
+
+      function updateQRForBase(baseUrl, localNetwork = false) {
+        const ctrlUrl = new URL('./controller.html', baseUrl);
         ctrlUrl.searchParams.set('room', roomId);
         const full = ctrlUrl.toString();
         urlInput.value = full;
-        try {
-          qrBox.innerHTML = window.MiniQR.renderQRSVG(full, { margin: 2 });
-        } catch (err) {
-          qrBox.textContent = full;
-        }
-        const crewUrl = new URL('./crew.html', baseOrigin + location.pathname);
+        const crewUrl = new URL('./crew.html', baseUrl);
         crewUrl.searchParams.set('room', roomId);
         const crewFull = crewUrl.toString();
         document.getElementById('crew-url-input').value = crewFull;
-        try {
-          document.getElementById('crew-qr-box').innerHTML = window.MiniQR.renderQRSVG(crewFull, { margin: 2 });
-        } catch (err) {
-          document.getElementById('crew-qr-box').textContent = crewFull;
+        const localOnly = isLocalOnly(ctrlUrl);
+        qrBox.hidden = crewQRBox.hidden = localOnly;
+        if (!localOnly) {
+          for (const [box, url] of [[qrBox, full], [crewQRBox, crewFull]]) {
+            try {
+              box.innerHTML = window.MiniQR.renderQRSVG(url, { margin: 2 });
+            } catch (err) {
+              box.textContent = url;
+            }
+          }
         }
+        addressHelp.textContent = localOnly
+          ? '当前只有本机地址。两台设备连入同一个 Wi-Fi 或热点后，刷新大屏以获取手机扫码地址。也可先点「同机副屏」。'
+          : localNetwork
+            ? '手机和大屏需连接同一 Wi-Fi 或热点。若扫码打不开页面，请从下拉菜单换一个局域网地址，再扫新的码。'
+            : '若扫码打开后一直连接中，请检查两台设备的网络，再从此处重新扫码。';
       }
 
-      updateQRForBase(location.origin);
+      const pageUrl = new URL(location.href);
+      updateQRForBase(pageUrl);
 
-      if (!/\.github\.io$/i.test(location.hostname)) {
+      if (/^https?:$/.test(pageUrl.protocol) && !/\.github\.io$/i.test(pageUrl.hostname)) {
         fetch('/api/network-info')
           .then((r) => (r.ok ? r.json() : null))
           .then((info) => {
             if (!info || !Array.isArray(info.endpoints) || info.endpoints.length === 0) return;
+            const endpoints = info.endpoints.map((entry) => ({ ...entry, url: new URL(entry.origin) }));
+            const firstLan = endpoints.find(({ url }) => !isLocalOnly(url));
+            if (!firstLan) return;
+            const exact = endpoints.find(({ url }) => url.origin === pageUrl.origin);
+            const sameHost = endpoints.find(({ url }) => url.hostname === pageUrl.hostname);
+            const sameProtocol = endpoints.find(({ url }) => url.hostname === firstLan.url.hostname && url.protocol === pageUrl.protocol);
+            const current = { url: pageUrl, label: `当前访问地址 (${pageUrl.host})` };
+            const selected = isLocalOnly(pageUrl) ? sameProtocol || firstLan : exact || sameHost || current;
+
             lanWrap.hidden = false;
-            hostSelect.innerHTML = '';
-            info.endpoints.forEach((ep, idx) => {
+            hostSelect.replaceChildren();
+            if (selected === current) endpoints.unshift(current);
+            for (const ep of endpoints) {
               const opt = document.createElement('option');
-              opt.value = ep.origin;
+              opt.value = ep.url.origin;
               opt.textContent = ep.label;
-              if (idx === 0) opt.selected = true;
+              opt.dataset.lan = String(ep !== current);
               hostSelect.appendChild(opt);
-            });
-            updateQRForBase(info.endpoints[0].origin);
+            }
+            hostSelect.value = selected.url.origin;
+            updateQRForBase(new URL(pageUrl.pathname, selected.url), selected !== current);
           })
           .catch(() => {});
       }
 
       hostSelect.addEventListener('change', () => {
-        updateQRForBase(hostSelect.value);
+        const option = hostSelect.selectedOptions[0];
+        if (option) updateQRForBase(new URL(pageUrl.pathname, option.value), option.dataset.lan === 'true');
       });
 
       document.getElementById('btn-copy-url').addEventListener('click', () => {
@@ -2541,22 +2580,24 @@
       dockTap('dock-gust', () => engine.triggerWindGust());
       dockTap('dock-roll', () => engine.triggerBarrelRoll());
       dockTap('dock-nuke', () => engine.triggerNuke());
-      const dockRail = document.getElementById('dock-rail');
-      const railRelease = () => {
+      function finishDockRail(fire, pointerId = dockRailPointer) {
+        if (pointerId === null || pointerId !== dockRailPointer) return;
+        dockRailPointer = null;
         dockRail.classList.remove('charging');
-        engine.keys.delete('KeyJ'); // the engine fires on release, exactly like the keyboard
-      };
+        if (dockRail.hasPointerCapture(pointerId)) dockRail.releasePointerCapture(pointerId);
+        engine.endTouchRail(fire);
+      }
       dockRail.addEventListener('pointerdown', (ev) => {
         ev.preventDefault();
         sfx.unlock();
-        if (engine.phase !== 'playing' || engine.isPaused) return;
+        if (ev.button !== 0 || dockRailPointer !== null || !engine.beginTouchRail()) return;
+        dockRailPointer = ev.pointerId;
         dockRail.setPointerCapture(ev.pointerId);
         dockRail.classList.add('charging');
-        engine.keys.add('KeyJ');
       });
-      dockRail.addEventListener('pointerup', railRelease);
-      dockRail.addEventListener('pointercancel', railRelease);
-      dockRail.addEventListener('lostpointercapture', railRelease);
+      dockRail.addEventListener('pointerup', (ev) => finishDockRail(true, ev.pointerId));
+      dockRail.addEventListener('pointercancel', (ev) => finishDockRail(false, ev.pointerId));
+      dockRail.addEventListener('lostpointercapture', (ev) => finishDockRail(false, ev.pointerId));
       touchDock.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
       const btnFlightCard = document.getElementById('btn-flight-card');
@@ -2710,38 +2751,24 @@
         });
       });
 
-      // Toy personality + name + hit size (remembered per browser)
+      // The engine saves calibration changes from either screen.
       const toyNameInput = document.getElementById('toy-name-input');
-      try {
-        const saved = JSON.parse(localStorage.getItem('skyStriker.toy') || 'null');
-        if (saved) engine.updateRig({ shape: saved.shape, toyName: saved.name || '', hitSize: saved.hitSize, width: saved.w, length: saved.l }, false);
-      } catch (e) { /* storage blocked */ }
       toyNameInput.value = engine.rig.toyName || '';
-      const saveToy = () => {
-        try {
-          localStorage.setItem('skyStriker.toy', JSON.stringify({
-            shape: engine.rig.shape, name: engine.rig.toyName, hitSize: engine.rig.hitSize, w: engine.rig.width, l: engine.rig.length
-          }));
-        } catch (e) { /* ignore */ }
-      };
       document.querySelectorAll('[data-toy]').forEach((btn) => {
         btn.addEventListener('click', () => {
           sfx.unlock();
           sfx.uiClick();
           engine.updateRig({ shape: btn.dataset.toy, width: Number(btn.dataset.w), length: Number(btn.dataset.l) }, true);
-          saveToy();
         });
       });
       toyNameInput.addEventListener('input', () => {
         engine.updateRig({ toyName: toyNameInput.value }, false);
-        saveToy();
       });
       toyNameInput.addEventListener('keydown', (ev) => ev.stopPropagation()); // typing a name must not launch the game
       document.querySelectorAll('[data-hit]').forEach((btn) => {
         btn.addEventListener('click', () => {
           sfx.uiClick();
           engine.updateRig({ hitSize: btn.dataset.hit }, true);
-          saveToy();
         });
       });
 
@@ -2769,7 +2796,6 @@
             width: Number(btn.dataset.w),
             length: Number(btn.dataset.l)
           }, true);
-          saveToy();
         });
       });
 
