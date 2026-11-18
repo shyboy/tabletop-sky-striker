@@ -547,24 +547,26 @@
       .support-btn.fired, .cheer-btn.pop { animation: none; }
     }
   </style>
+  <link rel="stylesheet" href="./css/flight-deck.css">
+  <link rel="stylesheet" href="./css/stations.css">
 </head>
-<body>
+<body class="crew-view">
   <main class="crew-shell">
     <!-- 1. Header -->
     <header class="crew-top panel">
-      <h1 class="crew-title">🛠 地勤指挥台</h1>
+      <h1 class="crew-title station-brand"><span class="wing-mark" aria-hidden="true"></span>地勤指挥台</h1>
       <div class="link-chip" aria-live="polite">
         <span id="crew-dot" class="dot" aria-hidden="true"></span>
         <span id="crew-status">连接平板中...</span>
       </div>
-      <button type="button" id="btn-help" class="help-btn" aria-label="地勤怎么玩">❓ 玩法</button>
+      <button type="button" id="btn-help" class="help-btn" aria-label="地勤怎么玩">玩法</button>
     </header>
 
     <!-- 2. Pilot status -->
     <section class="pilot-card panel" aria-label="飞行员状态">
       <div class="pilot-row">
         <span class="chapter-line" id="chapter-label">等待小飞行员起飞…</span>
-        <span class="score-text" id="score-text">0000000</span>
+        <span class="station-score"><small>得分</small><b class="score-text" id="score-text">0000000</b></span>
       </div>
       <div class="bar-row">
         <span class="bar-label">机体</span>
@@ -594,7 +596,7 @@
     <section class="radar-card panel" id="radar-card" aria-label="战术雷达，点击敌机标记集火目标">
       <canvas id="crew-radar"></canvas>
       <div class="radar-caption">
-        <span>📡 战术雷达</span>
+        <span>战术雷达</span>
         <span class="mark-state" id="mark-state">🎯 点敌机标记集火</span>
       </div>
       <div class="radar-overlay" id="radar-overlay">
@@ -637,7 +639,7 @@
 
   <dialog class="help-dialog" id="help-dialog" aria-labelledby="help-title">
     <h2 id="help-title">🛠 你是地勤</h2>
-    <p class="lead">孩子负责飞，你负责补给和指挥。这台手机不开飞机——它是塔台：看着雷达，在关键时刻帮小飞行员一把。</p>
+    <p class="lead">小飞行员负责驾驶，你负责观察雷达、补给和指挥。等大屏起飞，支援按钮就会亮起。</p>
     <ul>
       <li><span>🛡</span><span><b>投放护盾</b>：给战机加一层能量护盾，替它挡下一次撞击。</span></li>
       <li><span>🔧</span><span><b>远程维修</b>：机体耐久见红时按下，立刻修复 25 点。</span></li>

@@ -10,6 +10,12 @@
 
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const lerp = (a, b, t) => a + (b - a) * t;
+  const TABLETOP_CRUISE_SPEED = 310;
+  const TABLETOP_FULL_SPEED = 880;
+  const MAX_FRAME_SECONDS = 0.1;
+  const MAX_STEP_SECONDS = 0.02;
+  const REMOTE_INPUT_TIMEOUT_MS = 350;
+  const NEUTRAL_REMOTE_INPUT = { vx: 0, vy: 0, firing: false, railCharge: 0, micLevel: 0 };
 
   const STORY_CHAPTERS = [
     {
@@ -143,6 +149,8 @@
   const LANE_PF = 0.6; // the corridor scrolls a bit slower than the battle layer: it reads as terrain far below
   const VEIL_RGB = { day: '10, 34, 66', sunset: '34, 12, 36', night: '2, 6, 18' };
   const TUTORIAL_KEY = 'skyStriker.tutorialDone.v1';
+  const TOY_KEY = 'skyStriker.toy';
+  const TOY_CALIBRATION_FIELDS = ['shape', 'toyName', 'hitSize', 'width', 'length', 'anchorY'];
 
   // Toy personality: what sits on the tablet changes how it flies
   const TOY_TRAITS = {
@@ -239,10 +247,10 @@
       };
 
       this.calibHighlightTimer = 0;
-      this.calibDrawerOpen = false;
       this.hudTop = 12; // set by the host page to sit below its floating toolbar
       this.manualPaused = false;
-      this.setupPaused = false;
+      this.localSetupOpen = false;
+      this.remoteSetupOpen = false;
       this.skillDraftOpen = false;
       this._gpStickLatch = false;
 
@@ -253,8 +261,7 @@
           const wasOpen = this.skillDraftOpen;
           this.skillDraftOpen = Boolean(draft);
           if (this.skillDraftOpen) {
-            this.keys.clear();
-            this.pointerDrag.active = false;
+            this._cancelLocalControls();
           } else if (wasOpen && this.phase === 'playing') {
             // Post-draft safety grace: 1.5s invulnerability + gentle shockwave clearing nearby shots
             this._applyToyTraits(false);
@@ -310,7 +317,7 @@
       }) : null;
 
       // Input state (merged from mobile controller, gamepad, keyboard)
-      this.remoteInput = { vx: 0, vy: 0, firing: true, railCharge: 0, micLevel: 0 };
+      this.remoteInput = { ...NEUTRAL_REMOTE_INPUT };
       this.keys = new Set();
       this.pointerDrag = { active: false, vx: 0, vy: 0 };
       this.localRailCharge = 0;
@@ -327,10 +334,23 @@
       this._initWorldContainers();
       this.stopToTitle();
       this.resize();
+      const toy = loadJSON(TOY_KEY, null);
+      if (toy) {
+        this.updateRig({ shape: toy.shape, toyName: toy.name, hitSize: toy.hitSize,
+          width: toy.w, length: toy.l, anchorY: toy.anchorY }, false);
+      }
     }
 
     get isPaused() {
       return this.phase === 'playing' && (this.manualPaused || this.setupPaused || this.skillDraftOpen);
+    }
+
+    get setupPaused() {
+      return this.localSetupOpen || this.remoteSetupOpen;
+    }
+
+    get calibDrawerOpen() {
+      return this.setupPaused;
     }
 
     _mods() {
@@ -354,8 +374,12 @@
       return this.roguelite ? this.roguelite.pickCard(index) : false;
     }
 
-    rerollSkills() {
-      return this.roguelite ? this.roguelite.reroll() : false;
+    pickOfferedSkill(version, cardId) {
+      return this.roguelite ? this.roguelite.pickOfferedCard(version, cardId) : false;
+    }
+
+    rerollSkills(version) {
+      return this.roguelite ? this.roguelite.reroll(version) : false;
     }
 
     moveSkillFocus(delta) {
@@ -367,6 +391,9 @@
     }
 
     _initWorldContainers() {
+      this._cancelLocalControls();
+      this.hasRemoteFireInput = false;
+      this.clearRemoteInput();
       this.time = 0;
       this.score = 0;
       this.distanceKm = 0;
@@ -543,8 +570,7 @@
         this.victoryHold = false;
         this.player.invulnTimer = Math.max(this.player.invulnTimer, 2.2);
       }
-      this.keys.clear();
-      this.pointerDrag.active = false;
+      this._cancelLocalControls();
       this.onStateChange(this.getPublicState());
     }
 
@@ -561,17 +587,17 @@
       this.manualPaused = false;
       this.phase = 'gameover';
       this.gameOver = true;
+      this.endTouchRail();
       this._endRun();
       this.onStateChange(this.getPublicState());
     }
 
-    setSetupPause(openFlag) {
-      this.calibDrawerOpen = Boolean(openFlag);
-      this.setupPaused = Boolean(openFlag);
-      if (openFlag) {
-        this.keys.clear();
-        this.pointerDrag.active = false;
-      }
+    setSetupPause(open, source = 'host') {
+      const field = source === 'controller' ? 'remoteSetupOpen' : 'localSetupOpen';
+      open = Boolean(open);
+      if (this[field] === open) return;
+      this[field] = open;
+      if (open) this._cancelLocalControls();
       this.onStateChange(this.getPublicState());
     }
 
@@ -605,15 +631,15 @@
     }
 
     updateRig(patch = {}, highlight = true) {
-      const prevMode = this.rig.mode;
+      const previous = { ...this.rig };
       if (patch.mode === 'tabletop' || patch.mode === 'arcade') this.rig.mode = patch.mode;
       if (patch.skyTheme && ['auto', 'day', 'sunset', 'night'].includes(patch.skyTheme)) {
         this.rig.skyTheme = patch.skyTheme;
       }
       if (patch.shape && ['jet', 'car', 'orb'].includes(patch.shape)) this.rig.shape = patch.shape;
-      if (typeof patch.width === 'number') this.rig.width = clamp(patch.width, 36, 240);
-      if (typeof patch.length === 'number') this.rig.length = clamp(patch.length, 44, 280);
-      if (typeof patch.anchorY === 'number') {
+      if (Number.isFinite(patch.width)) this.rig.width = clamp(patch.width, 36, 240);
+      if (Number.isFinite(patch.length)) this.rig.length = clamp(patch.length, 44, 280);
+      if (Number.isFinite(patch.anchorY)) {
         this.rig.anchorY = clamp(patch.anchorY, 0.52, 0.86);
         if (this.rig.mode === 'tabletop') {
           this.player.screenY = this.height * this.rig.anchorY;
@@ -622,13 +648,13 @@
       if (typeof patch.pureCamera === 'boolean') this.rig.pureCamera = patch.pureCamera;
       if (typeof patch.godMode === 'boolean') this.rig.godMode = patch.godMode;
       if (patch.difficulty && DIFFICULTY[patch.difficulty]) this.rig.difficulty = patch.difficulty;
-      if (patch.hitSize && HIT_SIZE[patch.hitSize]) this.rig.hitSize = patch.hitSize;
+      if (Object.hasOwn(HIT_SIZE, patch.hitSize)) this.rig.hitSize = patch.hitSize;
       if (typeof patch.toyName === 'string') this.rig.toyName = patch.toyName.trim().slice(0, 8);
       if (patch.bgDim && BG_CALM[patch.bgDim]) this.rig.bgDim = patch.bgDim;
       // A new toy type before take-off changes the hull right away (mid-flight it keeps the current HP ratio)
       if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
-      if (prevMode !== this.rig.mode) {
+      if (previous.mode !== this.rig.mode) {
         // Enemy shots bake the camera speed into their velocity, so they would hang or rush after a switch
         for (const b of this.enemyBullets) b.life = 0;
         if (this.rig.mode === 'arcade') {
@@ -651,6 +677,10 @@
 
       if (highlight && this.phase === 'playing' && (patch.width !== undefined || patch.length !== undefined || patch.shape !== undefined || patch.anchorY !== undefined)) {
         this.calibHighlightTimer = 4.0;
+      }
+      if (TOY_CALIBRATION_FIELDS.some((key) => previous[key] !== this.rig[key])) {
+        const { shape, toyName, hitSize, width, length, anchorY } = this.rig;
+        saveJSON(TOY_KEY, { shape, name: toyName, hitSize, w: width, l: length, anchorY });
       }
       this.onStateChange(this.getPublicState());
     }
@@ -743,21 +773,45 @@
       };
     }
 
+    clearRemoteInput() {
+      Object.assign(this.remoteInput, NEUTRAL_REMOTE_INPUT);
+      this._lastRemoteInputAt = null;
+      if (this._railCharge() < 0.97) this.fullChargeAt = null;
+    }
+
+    _expireRemoteInput(now) {
+      if (this._lastRemoteInputAt !== null && now - this._lastRemoteInputAt >= REMOTE_INPUT_TIMEOUT_MS) {
+        this.clearRemoteInput();
+      }
+    }
+
     setRemoteInput(data) {
       if (!data) return;
-      this._lastRemoteInputAt = performance.now();
-      if (typeof data.vx === 'number') this.remoteInput.vx = clamp(data.vx, -1, 1);
-      if (typeof data.vy === 'number') this.remoteInput.vy = clamp(data.vy, -1, 1);
-      if (typeof data.firing === 'boolean') this.remoteInput.firing = data.firing;
-      if (typeof data.micLevel === 'number') this.remoteInput.micLevel = clamp(data.micLevel, 0, 1);
-      if (typeof data.railCharge === 'number') {
+      const now = performance.now();
+      this._expireRemoteInput(now);
+      const { vx, vy, firing, micLevel, railCharge, autoRelease } = data;
+      const hasAxis = Number.isFinite(vx) || Number.isFinite(vy);
+      const hasFiring = typeof firing === 'boolean';
+      const hasMic = Number.isFinite(micLevel);
+      const hasCharge = Number.isFinite(railCharge);
+      if (!hasAxis && !hasFiring && !hasMic && !hasCharge) return;
+
+      this._lastRemoteInputAt = now;
+      if (Number.isFinite(vx)) this.remoteInput.vx = clamp(vx, -1, 1);
+      if (Number.isFinite(vy)) this.remoteInput.vy = clamp(vy, -1, 1);
+      if (hasFiring) {
+        this.hasRemoteFireInput = true;
+        this.remoteInput.firing = firing;
+      }
+      if (hasMic) this.remoteInput.micLevel = clamp(micLevel, 0, 1);
+      if (hasCharge) {
         const prev = this.remoteInput.railCharge;
-        const next = clamp(data.railCharge, 0, 1);
+        const next = clamp(railCharge, 0, 1);
         this.remoteInput.railCharge = next;
         if (this.phase === 'playing' && !this.isPaused && next > 0.15) {
           this.sfx.chargeTick(next);
         }
-        if (prev >= 0.38 && next === 0 && data.autoRelease) {
+        if (prev >= 0.38 && next === 0 && autoRelease) {
           this.triggerRailgun(prev);
         }
       }
@@ -827,6 +881,37 @@
       return true;
     }
 
+    _cancelLocalControls() {
+      this.keys.clear();
+      this.pointerDrag.active = false;
+      this.localRailCharge = 0;
+      this._wasChargingKey = false;
+      this.prevGpL2 = 0;
+      this.touchRailHeld = false;
+      this.touchRailCharge = 0;
+      if (this.remoteInput.railCharge < 0.97) this.fullChargeAt = null;
+    }
+
+    beginTouchRail() {
+      if (this.phase !== 'playing' || this.isPaused || this.touchRailHeld) return false;
+      this.touchRailHeld = true;
+      return true;
+    }
+
+    endTouchRail(fire = false) {
+      if (!this.touchRailHeld) return false;
+      const power = this.touchRailCharge;
+      this.touchRailHeld = false;
+      this.touchRailCharge = 0;
+      const fired = fire && power >= 0.35 && this.triggerRailgun(power);
+      if (this._railCharge() < 0.97) this.fullChargeAt = null;
+      return fired;
+    }
+
+    _railCharge() {
+      return Math.max(this.remoteInput.railCharge, this.localRailCharge, this.touchRailCharge);
+    }
+
     triggerRailgun(power = 1) {
       const p = this.player;
       if (this.phase !== 'playing' || this.isPaused || p.railCooldown > 0 || p.railBeamTimer > 0) return false;
@@ -855,6 +940,7 @@
       if (this.tutorial) this.tutorial.railed = true;
       this.remoteInput.railCharge = 0;
       this.localRailCharge = 0;
+      this.touchRailCharge = 0;
       this.screenShake = Math.max(this.screenShake, 12 * clampedPower);
       this.flashAlpha = Math.max(this.flashAlpha, 0.28 * clampedPower);
       this.sfx.railgunFire();
@@ -1150,6 +1236,11 @@
       }
       this._wasChargingKey = this.keys.has('KeyJ') || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
 
+      if (this.touchRailHeld) {
+        this.touchRailCharge = clamp(this.touchRailCharge + dt * 1.1 * mods.railChargeMult, 0, 1);
+        this.sfx.chargeTick(this.touchRailCharge);
+      }
+
       const gp = this._pollGamepad(dt);
 
       let vx = this.remoteInput.vx + kx + gp.vx + (this.pointerDrag.active ? this.pointerDrag.vx : 0);
@@ -1160,7 +1251,7 @@
         vy /= mag;
       }
 
-      const railCharge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
+      const railCharge = this._railCharge();
       // Track when the charge first hit full: releasing within 0.45s is a "perfect" shot, holding longer overheats
       if (railCharge >= 0.97) {
         if (this.fullChargeAt === null || this.fullChargeAt === undefined) {
@@ -1173,12 +1264,10 @@
       }
       // Sustained breath: real mic level from the phone, or holding the gust key/button as a gentle breeze
       const heldBreeze = this.keys.has('KeyF') || gp.breeze ? 0.5 : 0;
-      // A phone that locks or disconnects mid-blow must not leave a permanent tailwind behind
-      if (this._lastRemoteInputAt && performance.now() - this._lastRemoteInputAt > 350) this.remoteInput.micLevel = 0;
       return {
         vx,
         vy,
-        firing: this.remoteInput.firing || gp.firing || kx !== 0 || ky !== 0 || this.pointerDrag.active,
+        firing: !this.hasRemoteFireInput || this.remoteInput.firing || gp.firing || kx !== 0 || ky !== 0 || this.pointerDrag.active,
         railCharge,
         micBreath: this.remoteInput.micLevel || 0,
         breath: Math.max(this.remoteInput.micLevel || 0, heldBreeze)
@@ -1186,7 +1275,21 @@
     }
 
     step(dt) {
-      dt = Math.min(dt, 0.05);
+      this._expireRemoteInput(performance.now());
+      // Bound catch-up after a stall, then divide slow frames into collision-sized steps.
+      const elapsed = clamp(dt, 0, MAX_FRAME_SECONDS);
+      const steps = Math.max(1, Math.ceil(elapsed / MAX_STEP_SECONDS));
+      for (let i = 0; i < steps; i++) this._stepWorld(elapsed / steps);
+
+      // Publish the latest state once per display frame, even when physics needed several steps.
+      this.telemetryAccum += elapsed;
+      if (this.telemetryAccum >= 0.06) {
+        this.telemetryAccum %= 0.06;
+        this._emitRadarTelemetry(this._playerWorldX(), this._playerWorldY());
+      }
+    }
+
+    _stepWorld(dt) {
       this._calmFactors(dt);
       // The corridor lazily re-centres on the craft, so strafing shows motion but the lane never gets lost
       const laneTarget = this.rig.mode === 'tabletop' ? this.player.worldX : this.width * 0.5 + (this.player.screenX - this.width * 0.5) * 0.18;
@@ -1199,13 +1302,6 @@
       if (this.slowMo > 0 && this.phase === 'playing' && !this.isPaused) {
         this.slowMo = Math.max(0, this.slowMo - dt);
         dt *= 0.32;
-      }
-
-      // Always broadcast telemetry at ~15-20Hz so mobile cockpit stays synced in Title & Pause states too!
-      this.telemetryAccum += dt;
-      if (this.telemetryAccum >= 0.06) {
-        this.telemetryAccum = 0;
-        this._emitRadarTelemetry(this._playerWorldX(), this._playerWorldY());
       }
 
       // Title screen: gentle serene cloud drift & idle helipad breathing, zero enemies
@@ -1375,10 +1471,14 @@
         p.screenY = this.height * this.rig.anchorY;
 
         p.vx = lerp(p.vx, inp.vx * maxLatSpeed, 1 - Math.exp(-dt * 12));
-        const targetCruise = inp.vy < 0
-          ? lerp(310, 610, -inp.vy)
-          : lerp(310, 155, inp.vy);
-        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * 8));
+        const forward = Math.max(0, -inp.vy);
+        // Give partial stick travel more throttle while keeping the response smooth at neutral.
+        const throttle = forward + 0.35 * forward * (1 - forward);
+        const targetCruise = forward > 0
+          ? lerp(TABLETOP_CRUISE_SPEED, TABLETOP_FULL_SPEED, throttle)
+          : lerp(TABLETOP_CRUISE_SPEED, 155, inp.vy);
+        const response = forward > 0 && p.cruiseSpeed < targetCruise ? 14 : 8;
+        p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * response));
         p.vy = -p.cruiseSpeed;
 
         p.worldX += p.vx * dt;
@@ -1390,7 +1490,8 @@
         p.cameraRoll = 0;
         p.cruiseSpeed = 280;
         p.vx = lerp(p.vx, inp.vx * 520 * this.traits.lateral, 1 - Math.exp(-dt * 14));
-        p.vy = lerp(p.vy, inp.vy * 480, 1 - Math.exp(-dt * 14));
+        const verticalSpeed = inp.vy < 0 ? 650 : 480;
+        p.vy = lerp(p.vy, inp.vy * verticalSpeed, 1 - Math.exp(-dt * 14));
         const halfW = 34;
         p.screenX = clamp(p.screenX + p.vx * dt, halfW, this.width - halfW);
         p.screenY = clamp(p.screenY + p.vy * dt, 56, this.height - 48);
@@ -1446,6 +1547,7 @@
           sky: this.getEffectiveSky(),
           phase: this.phase,
           scrollSpeed: p.cruiseSpeed + this.breath * 140,
+          boost: this._visualBoost(),
           cameraVx: this.rig.mode === 'tabletop' ? p.vx : p.vx * 0.18,
           time: this.time,
           calm: this._calmFactors()
@@ -1477,6 +1579,12 @@
         });
       }
       this._stepParticles(dt);
+    }
+
+    _visualBoost() {
+      const speed = this.player.cruiseSpeed + this.breath * 140;
+      if (this.rig.mode === 'arcade') return clamp((speed - 260) / 300, 0, 1);
+      return clamp((speed - TABLETOP_CRUISE_SPEED) / (TABLETOP_FULL_SPEED - TABLETOP_CRUISE_SPEED), 0, 1);
     }
 
     _muzzleOffsetY() {
@@ -2838,7 +2946,7 @@
         if (pw.magnet) {
           const ang = Math.atan2(py - pw.y, px - pw.x);
           pw.x += Math.cos(ang) * 640 * dt;
-          pw.y += Math.sin(ang) * 640 * dt;
+          pw.y += (Math.sin(ang) * 640 + worldVyOffset) * dt;
         } else {
           pw.vy = Math.min(135, pw.vy + 180 * dt);
           pw.vx *= Math.exp(-dt * 1.5);
@@ -3264,7 +3372,13 @@
       const sceneCamY = tabletopCam ? py : this.player.worldY;
       this._lane = this._laneFrame(W, H, sceneCamX, sceneCamY, tabletopCam ? anchorX : W * 0.5, tabletopCam ? anchorY : H * 0.5);
 
-      if (this.scenery) {
+      const art = this.departureArt;
+      if (this.phase === 'title' && !this.calibDrawerOpen && this.rig.skyTheme === 'auto' && art?.complete && art.naturalWidth) {
+        const scale = Math.max(W / art.naturalWidth, H / art.naturalHeight);
+        const width = art.naturalWidth * scale;
+        const height = art.naturalHeight * scale;
+        ctx.drawImage(art, (W - width) * 0.78, (H - height) * 0.38, width, height);
+      } else if (this.scenery) {
         const corridorOff = ((this._laneCamX ?? sceneCamX) - sceneCamX) * LANE_PF;
         this.scenery.render(ctx, {
           W,
@@ -3396,7 +3510,7 @@
       if (!this.rig.pureCamera && this.phase !== 'title') {
         this._renderMinimalHUD(ctx, W, H);
         if (this.roguelite && this.phase === 'playing' && !this.boss) {
-          this.roguelite.renderHudBar(ctx, W, H, this.hudTop, this._hudAlpha ?? 1);
+          this.roguelite.renderHudBar(ctx, W, H, this.hudTop + this._hudPanelH() - 18, this._hudAlpha ?? 1, this._hudPanelW(W));
         }
         this._renderBossBar(ctx, W);
         this._renderStoryBanner(ctx, W);
@@ -3598,7 +3712,7 @@
       ctx.globalAlpha = calm.lines;
 
       // Airflow speed lines
-      const boostRatio = clamp((this.player.cruiseSpeed - 280) / 300, 0, 1);
+      const boostRatio = this._visualBoost();
       const streakCell = 170;
       const effXs = camX * (1 - 1.45);
       const effYs = camY * (1 - 1.45);
@@ -3692,8 +3806,8 @@
       const p = this.player;
       const rw = this.rig.width;
       const rl = this.rig.length;
-      const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
-      const boost = clamp((p.cruiseSpeed - 260) / 320 + this.breath * 0.6, 0, 1);
+      const charge = this._railCharge();
+      const boost = this._visualBoost();
       const onTitle = this.phase === 'title';
       const mods = this._mods();
 
@@ -3710,6 +3824,7 @@
           width: rw,
           length: rl,
           bank: p.bank,
+          boost,
           phase: this.phase,
           calibOpen: this.calibDrawerOpen,
           pureCamera: this.rig.pureCamera,
@@ -3885,7 +4000,7 @@
 
         // Subtle label pill when not covered by CAD top ruler
         if (!this.calibDrawerOpen) {
-          const tip = onTitle ? '▲ 桌面停机坪 · 把小车/纸飞机/橡皮放进框内' : '▲ 机头朝前 · 实物校准框';
+          const tip = onTitle ? '▲ 停机坪 · 机头朝上' : '▲ 机头朝前 · 实物校准框';
           ctx.font = '700 12px system-ui, -apple-system, sans-serif';
           const tw = ctx.measureText(tip).width + 18;
           ctx.fillStyle = `rgba(7, 20, 38, ${(a * 0.68).toFixed(2)})`;
@@ -3917,7 +4032,7 @@
     _renderVirtualFighter(ctx, sx, sy) {
       const p = this.player;
       const mods = this._mods();
-      const charge = Math.max(this.remoteInput.railCharge, this.localRailCharge);
+      const charge = this._railCharge();
       const sinceFull = this.fullChargeAt !== null && this.fullChargeAt !== undefined ? this.time - this.fullChargeAt : -1;
       const perfWin = 0.45 * mods.railPerfectWindowMult;
       const inWindow = sinceFull >= 0 && sinceFull <= perfWin;
@@ -4718,11 +4833,12 @@
     }
 
     _hudPanelW(W) {
-      return W < 560 ? 172 : 196;
+      return W < 560 ? 184 : 204;
     }
 
     _hudPanelH() {
-      return (this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
+      const rows = (this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
+      return rows + (this.roguelite ? 18 : 0);
     }
 
     // Boss bar and banners sit beside the score panel on wide screens, beneath it on narrow ones
@@ -4787,8 +4903,8 @@
 
       ctx.save();
       ctx.globalAlpha = this._hudAlpha;
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.42)';
-      this._roundRectPath(ctx, x0, y0, panelW, panelH, 12);
+      ctx.fillStyle = 'rgba(8, 36, 42, 0.84)';
+      this._roundRectPath(ctx, x0, y0, panelW, panelH, 8);
       ctx.fill();
       ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
       ctx.shadowBlur = 3;
@@ -4808,14 +4924,21 @@
       // Row 2: hull bar + shield pips
       ctx.shadowBlur = 0;
       const pipsW = 26;
-      const barW = panelW - 20 - pipsW;
+      const barX = L + 29;
+      const barW = R - pipsW - barX;
       const frac = clamp(p.hp / p.maxHp, 0, 1);
+      ctx.textAlign = 'left';
+      ctx.font = '650 10px system-ui, sans-serif';
+      ctx.fillStyle = '#d7e7df';
+      ctx.fillText('机体', L, y0 + 32);
       ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-      this._roundRectPath(ctx, L, y0 + 25, barW, 6, 3);
+      this._roundRectPath(ctx, barX, y0 + 25, barW, 6, 3);
       ctx.fill();
       ctx.fillStyle = this.rig.godMode ? '#fde047' : (frac > 0.6 ? '#38bdf8' : (frac > 0.3 ? '#facc15' : '#ef4444'));
-      this._roundRectPath(ctx, L, y0 + 25, Math.max(4, barW * frac), 6, 3);
-      ctx.fill();
+      if (frac > 0) {
+        this._roundRectPath(ctx, barX, y0 + 25, Math.max(2, barW * frac), 6, 3);
+        ctx.fill();
+      }
       for (let k = 0; k < 2; k++) {
         ctx.strokeStyle = '#67e8f9';
         ctx.lineWidth = 1.4;
@@ -4840,11 +4963,11 @@
       }
       ctx.font = '700 11px system-ui, -apple-system, sans-serif';
       ctx.fillStyle = p.droneCount > 0 ? '#6ee7b7' : '#64748b';
-      ctx.fillText(`D${p.droneCount}`, L + 52, ry);
+      ctx.fillText(`僚${p.droneCount}`, L + 54, ry);
       ctx.fillStyle = p.nukes > 0 ? '#fb923c' : '#64748b';
-      ctx.fillText(`N${p.nukes}`, L + 76, ry);
+      ctx.fillText(`核${p.nukes}`, L + 81, ry);
       const gustPct = p.gustCooldown <= 0 ? 1 : 1 - p.gustCooldown / p.gustMaxCooldown;
-      const gx = L + 112;
+      const gx = L + 119;
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
@@ -4885,7 +5008,7 @@
       }
 
       // Row 5 (only while active): medal chain and lung gauge
-      if (panelH > 70) {
+      if (panelH - (this.roguelite ? 18 : 0) > 70) {
         const r5 = y0 + 77;
         ctx.textAlign = 'left';
         ctx.font = '700 10px system-ui, -apple-system, sans-serif';

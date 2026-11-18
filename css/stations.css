@@ -1,0 +1,198 @@
+/* Portrait handsets keep telemetry above the two thumb controls. */
+.cockpit-view, .crew-view {
+  background: radial-gradient(ellipse at 50% 0%, #164147, #081e24 76%);
+  color: var(--text-hi);
+}
+.cockpit-shell, .crew-shell {
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+  gap: clamp(.38rem, 1.15vh, .75rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+.cockpit-shell {
+  grid-template-areas: "head" "mfd" "lesson" "deck";
+  grid-template-rows: auto auto auto minmax(min-content, 1fr);
+}
+.cockpit-shell:has(.c-coach[hidden]) {
+  grid-template-areas: "head" "mfd" "deck";
+  grid-template-rows: auto auto minmax(min-content, 1fr);
+}
+.cockpit-top { grid-area: head; }
+.mfd-bay { grid-area: mfd; }
+.deck-grid { grid-area: deck; }
+.cockpit-top, .crew-top {
+  padding: .35rem .15rem .55rem;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--edge-line);
+  border-radius: 0;
+}
+.station-brand { font-size: 1.08rem; color: var(--paper); }
+.station-brand .wing-mark { width: 1.8rem; height: 1.8rem; }
+.top-actions { flex: 1 0 100%; gap: .32rem; }
+.top-actions .mini-btn { flex: 1 1 auto; }
+.link-chip { color: #d0dfd8; font: 600 .74rem/1.35 var(--console-sans); }
+.mini-btn, .help-btn, .roll-btn {
+  min-height: 42px;
+  padding: .38rem .58rem;
+  background: var(--instrument-light);
+  color: #f6f3e6;
+  border: 1px solid var(--edge-line);
+  border-radius: .48rem;
+}
+.mini-btn.active, .help-dialog .ok-btn {
+  color: #112f30;
+  border-color: var(--sea-glass);
+  background: var(--sea-glass);
+}
+.mini-btn.danger { background: #452e30; border-color: #946466; color: #ffd2c3; }
+.mini-btn.warn { background: #4d402d; color: #ffe1b1; }
+.mfd-bay, .stick-panel, .railgun-bay, .pilot-card, .cheer-row {
+  background: var(--instrument);
+  border-color: var(--edge-line);
+  border-radius: .75rem;
+}
+.mfd-bay {
+  grid-template-columns: minmax(80px, .78fr) minmax(0, 1.62fr);
+  padding: .65rem;
+  gap: .65rem;
+}
+.mfd-bay .radar-card { background: #091e25; border-color: #395c61; }
+#radar-canvas { width: min(100%, 136px); height: auto; }
+.radar-caption, .weapon-label, .deck-label { color: var(--sea-glass); font-size: .75rem; font-weight: 700; }
+.chapter-line { color: var(--sun); font-size: .83rem; line-height: 1.35; }
+.stats-strip { align-items: baseline; margin: .22rem 0; }
+.station-score { display: inline-flex; gap: .32rem; align-items: baseline; }
+.station-score small { color: var(--text-dim); font: 550 .69rem/1 var(--console-sans); }
+.station-score b { color: var(--paper); font: 700 clamp(.95rem, 3vw, 1.24rem)/1.2 var(--console-mono); font-variant-numeric: tabular-nums; }
+#lv-text { white-space: nowrap; font-size: .71rem; }
+.meter-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .35rem; margin: .14rem 0; font-size: .67rem; color: var(--text-dim); }
+.meter-row .hp-track, .meter-row .xp-track { margin: 0; height: 6px; background: #061b20; border: 0; }
+.hp-fill { background: #86ceac; }
+.hp-fill.low { background: #ff9582; }
+.xp-fill { background: #d8b074; }
+.wind-box { background: #0b252c; border-color: #436369; }
+#btn-wind { min-height: 40px; border: 0; background: transparent; color: var(--sea-glass); }
+.mic-meter { width: 26px; height: 8px; }
+.deck-grid { grid-template-columns: minmax(0, 1.16fr) minmax(0, 1fr); }
+.stick-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  justify-items: center;
+  align-items: center;
+  align-content: stretch;
+  justify-content: stretch;
+  padding: .65rem;
+}
+.deck-label { justify-self: start; }
+#joystick-zone {
+  width: min(100%, 28dvh, 224px);
+  max-height: none;
+  border: 1px solid #63928d;
+  background: radial-gradient(circle, #214e50 0 23%, #112d33 24% 49%, #386567 50%, #122f35 51% 68%, #41676b 69%, #123039 70%);
+}
+#stick-knob {
+  width: clamp(38px, 13vw, 65px);
+  height: auto;
+  aspect-ratio: 1;
+  background: radial-gradient(circle at 35% 28%, #e1f0db, #86bcb1 55%, #4b827f);
+  border: 2px solid #cbdfcd;
+  box-shadow: 0 4px 9px #061b25aa;
+}
+.roll-btn { width: 100%; }
+.weapons-panel { grid-template-rows: minmax(152px, 1fr) minmax(72px, .47fr); }
+.railgun-bay { padding: .6rem; min-height: 0; }
+#railgun-track {
+  width: 58px;
+  max-height: 270px;
+  margin-block: .2rem;
+  border-color: #608683;
+  background: repeating-linear-gradient(0deg, transparent 0 11px, #7b999650 12px 13px), #0a2027;
+}
+#railgun-handle { width: 44px; background: #e2d8c1; border-color: #fff5df; color: var(--ink); }
+#nuke-btn {
+  min-height: 58px;
+  border: 1px solid #fda695;
+  border-radius: .65rem;
+  background: #8f3a32;
+  box-shadow: none;
+}
+#nuke-btn.launch-mode { background: var(--sun); border-color: #ffcf93; color: var(--ink); box-shadow: none; }
+#nuke-btn.resume-mode { background: var(--sea-glass); border-color: #b8eddd; color: var(--ink); box-shadow: none; }
+.nuke-title { font-size: clamp(1rem, 3.7vw, 1.3rem); }
+.nuke-count { background: transparent; font: 500 .74rem/1.35 var(--console-sans); color: inherit; }
+.c-coach { grid-area: lesson; position: static; width: 100%; margin: 0; transform: none; color: var(--paper); background: #263b36; border-color: #927e55; }
+.c-draft-card:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+.crew-shell { max-width: 42rem; grid-template-rows: auto auto minmax(125px, 1fr) auto auto auto; }
+.pilot-card { padding: .7rem .8rem; gap: .47rem; }
+.pilot-card .track { background: #081e26; }
+.crew-view .radar-card { border-radius: .75rem; border-color: var(--edge-line); }
+.crew-view .radar-card.ready { border-color: var(--sun); }
+.radar-overlay { background: #08232a88; }
+#radar-overlay-text { max-width: min(90%, 24rem); padding: .8rem .95rem; background: #0b2931e8; border: 1px solid #577978; border-radius: .55rem; }
+.support-btn { min-height: 78px; border-width: 1px; border-radius: .6rem; background: #102d33; }
+.support-btn.off { opacity: 1; border-color: #3d5c60; color: #c0d4cb; }
+.support-btn.off .ico { opacity: .7; }
+.support-btn.off .sub { color: #adc4bd; }
+.cheer-btn { min-width: 40px; min-height: 42px; }
+.help-dialog .ok-btn { color: var(--ink); }
+@media (pointer: coarse) {
+  .mini-btn, .roll-btn, .cheer-btn, #btn-wind { min-height: 44px; }
+  .cheer-btn { min-width: 44px; }
+}
+@media (max-width: 350px) {
+  .mfd-bay { grid-template-columns: 76px minmax(0, 1fr); gap: .38rem; padding: .38rem; }
+  .mini-btn { padding-inline: .32rem; }
+  .station-brand { font-size: .95rem; gap: .35rem; }
+}
+@media (orientation: landscape) and (min-width: 560px) {
+  .cockpit-shell, .cockpit-shell:has(.c-coach[hidden]) {
+    max-width: 72rem;
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr);
+    grid-template-areas: "head head" "mfd deck" "lesson deck";
+    grid-template-rows: auto minmax(min-content, 1fr) auto;
+  }
+  .cockpit-top { flex-wrap: nowrap; }
+  .top-actions { flex: 0 1 auto; margin-left: auto; }
+  .mfd-bay { align-self: stretch; }
+  .c-coach { align-self: end; }
+  #joystick-zone { width: min(100%, 41dvh, 224px); }
+  .weapons-panel { grid-template-rows: minmax(116px, 1fr) minmax(58px, .4fr); }
+  .crew-shell { max-width: 62rem; grid-template-columns: 1.1fr 1fr; grid-template-rows: auto auto minmax(min-content, 1fr) auto; }
+  .crew-top { grid-column: 1 / -1; }
+  .crew-view .radar-card { grid-column: 1; grid-row: 2 / 5; }
+  .pilot-card, .support-grid, .cheer-row { grid-column: 2; }
+  .support-grid { align-self: center; }
+  .crew-view .hint-line { grid-column: 1 / -1; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .cockpit-top { gap: .25rem; }
+  .station-brand .wing-mark { width: 1.4rem; height: 1.4rem; }
+  .top-actions { gap: .18rem; }
+  .top-actions .mini-btn { font-size: .71rem; }
+  .stick-panel, .railgun-bay { padding: .35rem; }
+  .deck-label, .weapon-label { font-size: .68rem; }
+  #railgun-track { min-height: 70px; }
+}
+
+#nuke-btn:disabled { background: #233d40; border-color: #526967; color: #d2ded4; box-shadow: none; cursor: default; }
+.cockpit-top .link-chip > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (orientation: landscape) and (max-height: 440px) and (min-width: 560px) {
+  .cockpit-shell, .cockpit-shell:has(.c-coach[hidden]) { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .cockpit-top .station-brand { white-space: nowrap; }
+  .top-actions { flex-wrap: nowrap; }
+  .mfd-bay { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+}
+@media (orientation: landscape) and (min-width: 560px) and (max-width: 700px) and (max-height: 440px) {
+  .mfd-bay { position: relative; display: block; padding: .4rem; }
+  .mfd-bay .radar-card { position: absolute; top: .45rem; left: .38rem; width: 47px; padding: .14rem; }
+  .radar-caption { font-size: .6rem; }
+  .sensor-col { min-height: 100%; gap: .3rem; }
+  .sensor-col > :first-child { padding-left: 52px; }
+  .stats-strip { flex-wrap: wrap; gap: .18rem .3rem; }
+  .weapons-panel { grid-template-rows: minmax(88px, 1fr) minmax(58px, .4fr); }
+  .c-coach { max-height: 4.25rem; overflow-y: auto; pointer-events: auto; }
+}

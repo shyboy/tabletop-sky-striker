@@ -114,7 +114,7 @@
       this.time = 0;
       this._scrollDist = 0;
       this._worldOffsetX = 0;
-      this._scrollSpeed = 240;
+      this._boost = 0;
       this._cameraVx = 0;
       this._corridorOffset = 0;
       this._lazyCamX = undefined;
@@ -195,7 +195,7 @@
         : (phase === 'title' ? 145 : 280);
       const cameraVx = Number(state.cameraVx) || 0;
 
-      this._scrollSpeed = scrollSpeed;
+      this._boost = state.boost ?? clamp((scrollSpeed - 260) / 300, 0, 1);
       this._cameraVx = cameraVx;
       this.time = typeof state.time === 'number' ? state.time : (this.time + safeDt);
       this._scrollDist += scrollSpeed * safeDt;
@@ -2121,7 +2121,7 @@
       }
 
       // 2. High-altitude speed airflow streaks
-      const boostRatio = clamp((this._scrollSpeed - 260) / 300, 0, 1);
+      const boostRatio = this._boost;
       const streakAlpha = calm.lines * (0.20 + boostRatio * 0.38);
       if (streakAlpha > 0.015) {
         const pad = Math.hypot(W, H) * 0.65;

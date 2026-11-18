@@ -27,7 +27,7 @@
     gyroVy: 0,
     gyroBaseBeta: null,
     gyroBaseGamma: null,
-    lastBeta: 0,
+    lastBeta: null,
     lastRollAt: 0,
     railCharge: 0,
     micActive: false,
@@ -74,6 +74,8 @@
   const lvText = document.getElementById('lv-text');
   const waveLabel = document.getElementById('wave-label');
   const hpFill = document.getElementById('hp-fill');
+  const hpMeter = document.getElementById('cockpit-hp');
+  const xpMeter = document.getElementById('cockpit-xp');
   const xpFill = document.getElementById('xp-fill');
   const skillDraftDialog = document.getElementById('skill-draft-dialog');
   const cDraftTitle = document.getElementById('c-draft-title');
@@ -99,6 +101,9 @@
   const cGod = document.getElementById('c-god');
 
   let bridge = null;
+  let hostConnected = false;
+  let stickPointerId = null;
+  let railPointerId = null;
 
   // Calibration Dialog light-dismiss fallback per modern-web-guidance
   if (!('closedBy' in HTMLDialogElement.prototype)) {
@@ -158,19 +163,23 @@
       }
     },
     onStatus(info) {
+      const wasConnected = hostConnected;
+      hostConnected = info.connected;
       const dot = document.getElementById('c-dot');
       const txt = document.getElementById('c-status');
+      nukeBtn.disabled = !info.connected;
+      renderPrimaryControl(state.telemetry);
       if (info.connected) {
+        if (!wasConnected) bridge.send('requestState');
         dot.classList.add('ok');
         txt.textContent = `${info.roomId} · ${info.transport}${info.rttMs ? ' ' + info.rttMs + 'ms' : ''}`;
       } else {
+        if (wasConnected) resetControls();
         dot.classList.remove('ok');
         txt.textContent = `待连主机 (${info.roomId})`;
       }
     }
   });
-  bridge.start();
-  setTimeout(() => bridge.send('requestState'), 350);
 
   // 1. Virtual Joystick with Pointer Capture
   let joyRadius = 64;
@@ -199,29 +208,42 @@
   }
 
   joyZone.addEventListener('pointerdown', (ev) => {
-    if (ev.button !== 0) return;
+    if (ev.button !== 0 || stickPointerId !== null) return;
     sfx.unlock();
+    stickPointerId = ev.pointerId;
     state.touchOverride = true;
     joyZone.setPointerCapture(ev.pointerId);
     applyPointerToStick(ev);
+    sendControls(!document.hidden);
   });
 
   joyZone.addEventListener('pointermove', (ev) => {
-    if (!joyZone.hasPointerCapture(ev.pointerId)) return;
+    if (ev.pointerId !== stickPointerId) return;
     applyPointerToStick(ev);
   });
 
-  joyZone.addEventListener('lostpointercapture', () => {
+  function centerStick() {
+    const pointerId = stickPointerId;
+    stickPointerId = null;
     state.touchOverride = false;
     state.stickVx = 0;
     state.stickVy = 0;
     if (state.controlMode === 'touch') updateKnobVisual(0, 0);
-  });
+    if (pointerId !== null && joyZone.hasPointerCapture(pointerId)) joyZone.releasePointerCapture(pointerId);
+  }
+
+  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    joyZone.addEventListener(eventName, (ev) => {
+      if (ev.pointerId !== stickPointerId) return;
+      centerStick();
+      sendControls(!document.hidden);
+    });
+  }
 
   // 2. Gyroscope Flight Stick + Pull-back Cobra Roll
   let gyroListenerBound = false;
   function onDeviceOrientation(ev) {
-    if (ev.beta === null || ev.gamma === null) return;
+    if (document.hidden || ev.beta === null || ev.gamma === null) return;
     if (state.gyroBaseBeta === null) {
       state.gyroBaseBeta = ev.beta;
       state.gyroBaseGamma = ev.gamma;
@@ -229,7 +251,7 @@
     const dGamma = ev.gamma - state.gyroBaseGamma;
     const dBeta = ev.beta - state.gyroBaseBeta;
 
-    const deltaBetaStep = ev.beta - state.lastBeta;
+    const deltaBetaStep = state.lastBeta === null ? 0 : ev.beta - state.lastBeta;
     state.lastBeta = ev.beta;
     const now = performance.now();
     if (state.controlMode === 'gyro' && state.telemetry.phase === 'playing' && !state.telemetry.paused && deltaBetaStep > 16 && dBeta > 24 && now - state.lastRollAt > 2000) {
@@ -278,6 +300,8 @@
     state.controlMode = 'gyro';
     btnGyro.classList.add('active');
     btnTouch.classList.remove('active');
+    btnGyro.setAttribute('aria-pressed', 'true');
+    btnTouch.setAttribute('aria-pressed', 'false');
     btnZero.hidden = false;
     vibrate(25);
   }
@@ -288,6 +312,8 @@
     state.controlMode = 'touch';
     btnTouch.classList.add('active');
     btnGyro.classList.remove('active');
+    btnTouch.setAttribute('aria-pressed', 'true');
+    btnGyro.setAttribute('aria-pressed', 'false');
     btnZero.hidden = true;
     updateKnobVisual(0, 0);
   });
@@ -325,15 +351,16 @@
   }
 
   railTrack.addEventListener('pointerdown', (ev) => {
-    if (ev.button !== 0) return;
+    if (ev.button !== 0 || railPointerId !== null) return;
     sfx.unlock();
     railStartY = ev.clientY;
+    railPointerId = ev.pointerId;
     railTrack.setPointerCapture(ev.pointerId);
     setRailVisual(0.08);
   });
 
   railTrack.addEventListener('pointermove', (ev) => {
-    if (!railTrack.hasPointerCapture(ev.pointerId)) return;
+    if (ev.pointerId !== railPointerId) return;
     const trackRect = railTrack.getBoundingClientRect();
     const maxTravel = Math.max(44, trackRect.height - 56);
     const ratio = clamp((ev.clientY - railStartY) / maxTravel, 0, 1);
@@ -344,17 +371,40 @@
     setRailVisual(ratio);
   });
 
-  railTrack.addEventListener('lostpointercapture', () => {
+  function cancelRailCharge() {
+    const pointerId = railPointerId;
+    railPointerId = null;
+    if (state.railCharge > 0) setRailVisual(0);
+    if (pointerId !== null && railTrack.hasPointerCapture(pointerId)) railTrack.releasePointerCapture(pointerId);
+  }
+
+  railTrack.addEventListener('pointerup', (ev) => {
+    if (ev.pointerId !== railPointerId) return;
     const power = state.railCharge;
-    setRailVisual(0);
-    if (power >= 0.38 && state.telemetry.phase === 'playing' && !state.telemetry.paused) {
+    cancelRailCharge();
+    if (power >= 0.38 && hostConnected && !document.hidden && state.telemetry.phase === 'playing' && !state.telemetry.paused) {
       vibrate([45, 25, 110]);
       sfx.railgunFire();
       bridge.send('railgunFire', { power });
-    } else {
-      bridge.send('input', { railCharge: 0 });
     }
   });
+
+  for (const eventName of ['pointercancel', 'lostpointercapture']) {
+    railTrack.addEventListener(eventName, (ev) => {
+      if (ev.pointerId === railPointerId) cancelRailCharge();
+    });
+  }
+
+  function resetControls() {
+    centerStick();
+    cancelRailCharge();
+    state.gyroVx = 0;
+    state.gyroVy = 0;
+    state.lastBeta = null;
+    state.micLevel = 0;
+    state.blowFrames = 0;
+    if (state.controlMode === 'gyro') updateKnobVisual(0, 0);
+  }
 
   // 5. Smart 4-State Primary Action Button (Launch / Resume / Nuke / Relaunch)
   nukeBtn.addEventListener('click', () => {
@@ -418,6 +468,8 @@
       btnWind.textContent = '💨 对麦吹气借顺风！';
 
       const pollMic = () => {
+        requestAnimationFrame(pollMic);
+        if (document.hidden) return;
         analyser.getByteTimeDomainData(buf);
         let sumSq = 0;
         for (let i = 0; i < buf.length; i++) {
@@ -443,7 +495,6 @@
         } else {
           state.blowFrames = Math.max(0, state.blowFrames - 1);
         }
-        requestAnimationFrame(pollMic);
       };
       requestAnimationFrame(pollMic);
     } catch (_) {
@@ -459,7 +510,7 @@
     sfx.uiClick();
     vibrate(20);
     if (calibDialog.open) calibDialog.close();
-    bridge.send('togglePause');
+    bridge.send('setPause', { paused: !state.telemetry.paused });
   });
 
   btnCStop.addEventListener('click', () => {
@@ -487,8 +538,8 @@
   btnCalib.addEventListener('click', () => {
     sfx.unlock();
     sfx.uiClick();
-    bridge.send('calibFocus', { open: true });
     if (!calibDialog.open) calibDialog.showModal();
+    bridge.send('calibFocus', { open: true });
   });
 
   cWidth.addEventListener('input', () => {
@@ -550,13 +601,42 @@
     document.querySelectorAll('.coach-target').forEach((el) => el.classList.remove('coach-target'));
     if (!c) return;
     coachBox.classList.toggle('tip', c.kind !== 'tutorial');
-    const head = document.querySelector('.cockpit-top');
-    if (head) coachBox.style.top = `${Math.round(head.getBoundingClientRect().bottom + 6)}px`; // never over pause / return
     document.getElementById('c-coach-title').textContent = c.kind === 'tutorial' ? `🎓 新手引导 ${c.title}` : `💡 ${c.title}`;
     document.getElementById('c-coach-text').textContent = c.text || '';
     const sel = c.kind === 'tutorial' && COACH_TARGETS[c.target];
     const target = sel && document.querySelector(sel);
     if (target) target.classList.add('coach-target');
+  }
+
+  function renderPrimaryControl(t) {
+    if (nukeBtn.disabled) {
+      nukeTitle.textContent = '等待大屏';
+      nukeCount.textContent = '从大屏的扫码入口连接';
+      return;
+    }
+    const phase = t.phase || (t.gameOver ? 'gameover' : 'playing');
+    nukeBtn.classList.remove('empty', 'launch-mode', 'resume-mode');
+    if (phase === 'title') {
+      nukeBtn.classList.add('launch-mode');
+      nukeTitle.textContent = '点火起飞';
+      nukeCount.textContent = '启动大屏航程';
+    } else if (phase === 'gameover') {
+      nukeBtn.classList.add('launch-mode');
+      nukeTitle.textContent = '↻ 再次升空';
+      nukeCount.textContent = '开启新一轮借风航程';
+    } else if (t.paused && t.victoryHold) {
+      nukeBtn.classList.add('resume-mode');
+      nukeTitle.textContent = '♾ 继续无尽航线';
+      nukeCount.textContent = '三幕通关！或点右上「降落结算」';
+    } else if (t.paused) {
+      nukeBtn.classList.add('resume-mode');
+      nukeTitle.textContent = '▶ 继续航程';
+      nukeCount.textContent = '战局已悬停 · 点击恢复';
+    } else {
+      nukeBtn.classList.toggle('empty', (t.nukes || 0) <= 0);
+      nukeTitle.textContent = '☢ 战术核弹';
+      nukeCount.textContent = `剩余 ×${t.nukes ?? 0}`;
+    }
   }
 
   function renderTelemetryUI() {
@@ -565,12 +645,16 @@
     const phase = t.phase || (t.gameOver ? 'gameover' : 'playing');
     const onTitle = phase === 'title';
     const isPlaying = phase === 'playing';
-    const isGameOver = phase === 'gameover';
 
     scoreText.textContent = String(t.score || 0).padStart(7, '0');
     lvText.textContent = `Lv.${t.level || 1} · 火力${t.weaponLv || 1}`;
-    hpFill.style.inlineSize = `${clamp(t.hp ?? 100, 0, 100)}%`;
-    if (xpFill) xpFill.style.inlineSize = `${clamp((t.xpRatio || 0) * 100, 0, 100)}%`;
+    const hp = Math.round(clamp(t.hp ?? 100, 0, 100));
+    const xp = Math.round(clamp((t.xpRatio || 0) * 100, 0, 100));
+    hpFill.style.inlineSize = `${hp}%`;
+    hpMeter.setAttribute('aria-valuenow', String(hp));
+    hpFill.classList.toggle('low', hp <= 30);
+    if (xpFill) xpFill.style.inlineSize = `${xp}%`;
+    xpMeter.setAttribute('aria-valuenow', String(xp));
 
     if (onTitle) {
       waveLabel.textContent = '停机坪待命';
@@ -594,29 +678,7 @@
     btnModeSwitch.textContent = t.mode === 'tabletop' ? '实体压屏' : '虚拟战机';
     btnPureCam.classList.toggle('active', Boolean(t.pureCamera));
 
-    // Smart 4-state Primary Action Button
-    nukeBtn.classList.remove('empty', 'launch-mode', 'resume-mode');
-    if (onTitle) {
-      nukeBtn.classList.add('launch-mode');
-      nukeTitle.textContent = '🚀 点火起飞';
-      nukeCount.textContent = '带桌面小家伙升空';
-    } else if (isGameOver) {
-      nukeBtn.classList.add('launch-mode');
-      nukeTitle.textContent = '↻ 再次升空';
-      nukeCount.textContent = '开启新一轮借风航程';
-    } else if (t.paused && t.victoryHold) {
-      nukeBtn.classList.add('resume-mode');
-      nukeTitle.textContent = '♾ 继续无尽航线';
-      nukeCount.textContent = '三幕通关！或点右上「降落结算」';
-    } else if (t.paused) {
-      nukeBtn.classList.add('resume-mode');
-      nukeTitle.textContent = '▶ 继续航程';
-      nukeCount.textContent = '战局已悬停 · 点击恢复';
-    } else {
-      nukeBtn.classList.toggle('empty', (t.nukes || 0) <= 0);
-      nukeTitle.textContent = '☢ 战术核弹';
-      nukeCount.textContent = `剩余 ×${t.nukes ?? 0}`;
-    }
+    renderPrimaryControl(t);
 
     if (!state.micActive) {
       const pct = Math.round((t.gustReady ?? 1) * 100);
@@ -631,13 +693,15 @@
   }
   if (cDraftReroll) {
     cDraftReroll.addEventListener('click', () => {
+      const draft = state.skillDraft;
+      if (!draft?.version) return;
       const now = performance.now();
       if (now < pickLockUntil) return;
       pickLockUntil = now + 350;
       sfx.unlock();
       sfx.skillReroll && sfx.skillReroll();
       vibrate(25);
-      if (bridge) bridge.send('rerollSkills', {});
+      bridge.send('rerollSkills', { version: draft.version });
     });
   }
 
@@ -650,7 +714,7 @@
       }
       return;
     }
-    const key = `${draft.level}|${draft.rerollsLeft}|${draft.choices.map((c) => `${c.id}:${c.stars}`).join(',')}`;
+    const key = draft.version || `${draft.level}|${draft.rerollsLeft}|${draft.choices.map((c) => `${c.id}:${c.stars}`).join(',')}`;
     if (key === lastDraftKey && skillDraftDialog.open) return;
     const isNewOpen = !skillDraftDialog.open;
     lastDraftKey = key;
@@ -659,23 +723,21 @@
       if (calibDialog && calibDialog.open) {
         try { calibDialog.close(); } catch (_) {}
       }
-      state.touchOverride = false;
-      state.stickVx = 0;
-      state.stickVy = 0;
-      if (state.controlMode === 'touch') updateKnobVisual(0, 0);
-      if (state.railCharge > 0) setRailVisual(0);
+      resetControls();
+      sendControls(false);
     }
 
     if (cDraftTitle) cDraftTitle.textContent = `⚡ 核心升级 · Lv.${draft.level}`;
     if (cDraftReroll) {
-      cDraftReroll.disabled = (draft.rerollsLeft || 0) <= 0;
+      cDraftReroll.disabled = !draft.version || (draft.rerollsLeft || 0) <= 0;
       cDraftReroll.textContent = `🎲 换一批 (剩余 ${draft.rerollsLeft || 0})`;
     }
     const rarityColors = { common: '#38bdf8', rare: '#c084fc', epic: '#fbbf24' };
     cDraftList.innerHTML = '';
-    draft.choices.forEach((c, idx) => {
+    draft.choices.forEach((c) => {
       const btn = document.createElement('button');
       btn.type = 'button';
+      btn.disabled = !draft.version;
       btn.className = 'c-draft-card';
       btn.style.setProperty('--c-accent', rarityColors[c.rarity] || '#38bdf8');
       const stars = c.maxStars === 1 ? '★觉醒' : '★'.repeat(c.stars) + '☆'.repeat(Math.max(0, c.maxStars - c.stars));
@@ -687,13 +749,14 @@
         <div class="c-draft-desc">${c.desc}</div>
       `;
       btn.addEventListener('click', () => {
+        if (state.skillDraft?.version !== draft.version) return;
         const now = performance.now();
         if (now < pickLockUntil) return;
         pickLockUntil = now + 350;
         sfx.unlock();
         sfx.skillPick && sfx.skillPick(c.rarity);
         vibrate(40);
-        if (bridge) bridge.send('pickSkill', { index: idx });
+        bridge.send('pickSkill', { version: draft.version, cardId: c.id });
       });
       cDraftList.appendChild(btn);
     });
@@ -763,27 +826,51 @@
     }
   }
 
-  let lastSend = 0;
+  function sendControls(visible) {
+    if (!hostConnected) return;
+    const controlsActive = visible && !calibDialog.open && !skillDraftDialog?.open;
+    const useStick = state.touchOverride || state.controlMode === 'touch';
+    const vx = useStick ? state.stickVx : state.gyroVx;
+    const vy = useStick ? state.stickVy : state.gyroVy;
+    bridge.send('input', {
+      vx: controlsActive ? Number(vx.toFixed(3)) : 0,
+      vy: controlsActive ? Number(vy.toFixed(3)) : 0,
+      firing: controlsActive,
+      railCharge: controlsActive ? Number(state.railCharge.toFixed(3)) : 0,
+      micLevel: controlsActive ? Number(state.micLevel.toFixed(2)) : 0,
+      calibOpen: visible && calibDialog.open
+    });
+  }
+
+  function suspendControls() {
+    resetControls();
+    if (calibDialog.open) bridge.send('calibFocus', { open: false });
+    sendControls(false);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) suspendControls();
+    else if (calibDialog.open) bridge.send('calibFocus', { open: true });
+  });
+  window.addEventListener('pagehide', suspendControls);
+
+  const controlIntervalMs = 1000 / 45;
+  let nextSendAt = performance.now();
   function tick(now) {
-    if (!(skillDraftDialog && skillDraftDialog.open)) {
+    if (!document.hidden && !skillDraftDialog?.open) {
       drawRadar();
-      if (now - lastSend >= 22) {
-        lastSend = now;
-        const vx = state.touchOverride || state.controlMode === 'touch' ? state.stickVx : state.gyroVx;
-        const vy = state.touchOverride || state.controlMode === 'touch' ? state.stickVy : state.gyroVy;
-        bridge.send('input', {
-          vx: Number(vx.toFixed(3)),
-          vy: Number(vy.toFixed(3)),
-          firing: true,
-          railCharge: Number(state.railCharge.toFixed(3)),
-          micLevel: Number(state.micLevel.toFixed(2))
-        });
+      if (now >= nextSendAt) {
+        // Skip missed packets, keeping the 45 Hz schedule aligned across display refresh rates.
+        const intervals = Math.floor((now - nextSendAt) / controlIntervalMs) + 1;
+        nextSendAt += intervals * controlIntervalMs;
+        sendControls(true);
       }
     }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 
+  bridge.start();
   renderTelemetryUI();
   window.__skyController = { state, bridge };
 })();
