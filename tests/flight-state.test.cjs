@@ -65,6 +65,55 @@ test('arcade forward movement is faster and reverse uses its existing ceiling', 
   assert.ok(Math.abs(engine.player.vy - 480) < 1);
 });
 
+test('forward flight clears a crossing shot and still takes a head-on hit in both modes', () => {
+  for (const mode of ['tabletop', 'arcade']) {
+    for (const fps of [30, 60]) {
+      for (const scenario of ['neutral', 'push at shot', 'already pushing', 'head-on']) {
+        const { engine } = createFlight();
+        engine.updateRig({ mode }, false);
+        engine.startMission({ tutorial: false });
+        engine.spawnTimer = 100;
+        engine.player.invulnTimer = 0;
+        if (scenario === 'already pushing' || scenario === 'head-on') {
+          engine.setRemoteInput({ vy: -1 });
+        }
+        for (let i = 0; i < fps / 3; i++) engine.step(1 / fps);
+        const x = engine._playerWorldX();
+        const y = engine._playerWorldY();
+        if (scenario === 'head-on') {
+          engine._spawnEnemyBullet(x, y - 65, 0, 245, '#ef4444', 5);
+        } else {
+          engine._spawnEnemyBullet(x - 44, y, 245, 0, '#ef4444', 5);
+        }
+        if (scenario === 'push at shot') engine.keys.add('KeyW');
+        for (let i = 0; i < fps / 4; i++) engine.step(1 / fps);
+        const expectedHits = scenario === 'neutral' || scenario === 'head-on' ? 1 : 0;
+        assert.equal(engine.hitsTaken, expectedHits, `${mode}, ${fps} FPS, ${scenario}`);
+      }
+    }
+  }
+});
+
+test('a fast crossing between frames hits only when its path intersects the core', () => {
+  for (const directHit of [true, false]) {
+    const { engine } = createFlight();
+    engine.updateRig({ mode: 'arcade', difficulty: 'ace', hitSize: 'small' }, false);
+    engine.startMission({ tutorial: false });
+    engine.player.invulnTimer = 0;
+    engine.keys.add('KeyW');
+    advance(engine, 20);
+
+    const radius = 5;
+    const hitDistance = engine.hitCoreR + radius * 0.6;
+    const offsetX = directHit ? 0 : hitDistance + 1;
+    const x = engine._playerWorldX() + offsetX;
+    const y = engine._playerWorldY() - hitDistance - 1;
+    engine._spawnEnemyBullet(x, y, 0, 340, '#ef4444', radius);
+    engine.step(1 / 50);
+    assert.equal(engine.hitsTaken, directHit ? 1 : 0);
+  }
+});
+
 test('two seconds at full throttle cover the same distance at 15, 30 and 60 FPS', () => {
   const distances = [15, 30, 60].map((fps) => {
     const { engine } = createFlight();

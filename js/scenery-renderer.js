@@ -29,6 +29,14 @@
 
   const LANE_PF = 0.62;
 
+  // Shallows, basalt and nebula dust give each chapter a silhouette of its own.
+  // These colours belong to the scenery; reward stars and danger cues render above it.
+  const BANKS = {
+    day:    { rim: '#85c9bc', middle: '#cfb284', outer: '#996f59', relief: 13, spacing: 145 },
+    sunset: { rim: '#e7a082', middle: '#9b596e', outer: '#4d365d', relief: 26, spacing: 95 },
+    night:  { rim: '#819ccf', middle: '#485b9a', outer: '#343e78', relief: 19, spacing: 190 }
+  };
+
   // Fast deterministic 32-bit spatial hash -> [0, 1)
   function hash2D(ix, iy) {
     let n = Math.imul(ix | 0, 374761393) + Math.imul(iy | 0, 668265263);
@@ -352,11 +360,11 @@
       ctx.save();
       const g = ctx.createLinearGradient(0, 0, 0, h);
       if (sky === 'day') {
-        g.addColorStop(0, '#094382');
-        g.addColorStop(0.24, '#0c6abf');
-        g.addColorStop(0.52, '#0ea5e9');
-        g.addColorStop(0.78, '#22c7f0');
-        g.addColorStop(1, '#5eead4');
+        g.addColorStop(0, '#16495e');
+        g.addColorStop(0.24, '#21677b');
+        g.addColorStop(0.52, '#31899a');
+        g.addColorStop(0.78, '#50a7aa');
+        g.addColorStop(1, '#83c3b5');
       } else if (sky === 'sunset') {
         g.addColorStop(0, '#17133b');
         g.addColorStop(0.22, '#311b61');
@@ -1254,6 +1262,9 @@
       // Terrain & Islands layer (parallax 0.40)
       this._renderIslandsLayer(ctx, W, H, anchorX, anchorY, scrollDist, worldOffsetX, sky, t, calm, lane, combatWeight);
 
+      // Day headlands sit beneath the faster cloud layers as they pass across the coast.
+      if (sky === 'day') this._renderCorridorWalls(ctx, sky, calm, lane, onTitle);
+
       // Day seabird V-formations gliding above the islands
       if (sky === 'day' && this._birdFlocks.length > 0) {
         this._renderBirdFlocks(ctx, t, calm);
@@ -1282,7 +1293,7 @@
       });
 
       // 4. Winding Volumetric Canyon Corridor Walls (frames the flight lane cleanly)
-      this._renderCorridorWalls(ctx, sky, calm, lane, onTitle);
+      if (sky !== 'day') this._renderCorridorWalls(ctx, sky, calm, lane, onTitle);
 
       // 5. Gentle Airflow Streaks & Soft Atmospheric Wisps (strictly non-bullet-like!)
       this._renderAtmosphericWisps(ctx, W, H, anchorX, anchorY, scrollDist, worldOffsetX, sky, t, calm);
@@ -2019,45 +2030,61 @@
       const titleRetreat = onTitle ? Math.min(W * 0.14, 110) : 0;
       const effHw = hw + titleRetreat;
 
-      const wallRgb = sky === 'day'
-        ? '241, 248, 255'
-        : (sky === 'sunset' ? '253, 186, 116' : '38, 72, 132');
-      const deepRgb = sky === 'day'
-        ? '186, 220, 248'
-        : (sky === 'sunset' ? '124, 38, 78' : '15, 32, 68');
-
+      const bank = BANKS[sky];
       const strength = (onTitle ? 0.52 : 1.0) * (0.48 + 0.52 * calm.cloud);
       const y0 = -H * 0.35;
       const y1 = H * 1.35;
 
       ctx.save();
 
-      // 1. Feathered atmospheric bank strata framing the left & right valley edges
+      // Distance anchors the banks in the world. Headlands open into bays as the toy advances.
+      const spacing = Math.min(1, W / 720);
+      const bankX = (y, side) => {
+        const ly = lane.lyAt(y);
+        const bay = 0.5 + 0.5 * Math.cos(ly * 0.003 + side * 1.8);
+        const ridge = Math.sin(ly / bank.spacing + side) + 0.35 * Math.sin(ly * 0.04 + side);
+        return lane.cxAt(y) + side * (effHw + spacing * (bay * 70 - 22 + ridge * bank.relief));
+      };
       const strata = [
-        { inset: 4, a: 0.14, rgb: wallRgb },
-        { inset: 36, a: 0.18, rgb: wallRgb },
-        { inset: 82, a: 0.24, rgb: deepRgb }
+        { inset: 0, alpha: 0.32, color: bank.rim },
+        { inset: 9, alpha: sky === 'day' ? 0.86 : 0.55, color: bank.middle },
+        { inset: 32, alpha: sky === 'day' ? 0.94 : 0.62, color: bank.outer }
       ];
       for (const side of [-1, 1]) {
         for (const layer of strata) {
-          ctx.fillStyle = `rgba(${layer.rgb}, ${(layer.a * strength).toFixed(3)})`;
+          ctx.fillStyle = layer.color;
+          ctx.globalAlpha = layer.alpha * strength;
           ctx.beginPath();
-          let first = true;
-          for (let y = y0; y <= y1; y += 24) {
-            const ly = lane.lyAt(y);
-            const bump = 18 * Math.sin(ly * 0.019 + side * 2.1) + 10 * Math.sin(ly * 0.049 + side);
-            const x = lane.cxAt(y) + side * (effHw + layer.inset + bump);
-            if (first) {
-              ctx.moveTo(x, y);
-              first = false;
-            } else {
-              ctx.lineTo(x, y);
-            }
+          for (let y = y0; y <= y1 + 14; y += 14) {
+            const x = bankX(y, side) + side * layer.inset * spacing;
+            if (y === y0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
           }
           const farX = side > 0 ? W * 1.75 : -W * 0.75;
           ctx.lineTo(farX, y1);
           ctx.lineTo(farX, y0);
           ctx.closePath();
+          ctx.fill();
+        }
+        if (sky === 'day') {
+          // Broad, matte bluff faces. Sample in world space so a turn or a boost
+          // carries the same headland through the frame without changing its shape.
+          const faceHeight = 96;
+          const first = Math.floor(lane.lyAt(y0) / faceHeight);
+          const last = Math.ceil(lane.lyAt(y1) / faceHeight);
+          const originY = anchorY - lane.lyAt(anchorY);
+          ctx.fillStyle = '#604e52';
+          ctx.globalAlpha = 0.30 * strength;
+          ctx.beginPath();
+          for (let k = first; k < last; k++) {
+            const top = originY + k * faceHeight;
+            const bottom = top + faceHeight;
+            const width = 88 + 95 * hash2D(k, side);
+            ctx.moveTo(bankX(top, side) + side * 42 * spacing, top);
+            ctx.lineTo(bankX(bottom, side) + side * 48 * spacing, bottom);
+            ctx.lineTo(bankX(top, side) + side * width * spacing, top + faceHeight * 0.32);
+            ctx.closePath();
+          }
           ctx.fill();
         }
       }
@@ -2079,7 +2106,7 @@
             const hsh = hash2D(k, side > 0 ? 17 : 29);
             const spr = cloudSet[Math.floor(hsh * 23) % cloudSet.length];
             const sc = 0.62 + hsh * 0.42;
-            const x = lane.cxAt(sy) + side * (effHw + 58 + hsh * 44);
+            const x = bankX(sy, side) + side * (58 + hsh * 44);
             ctx.drawImage(
               spr.canvas,
               x - spr.w * sc * 0.5,

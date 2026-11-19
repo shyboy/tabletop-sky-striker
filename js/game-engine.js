@@ -12,6 +12,7 @@
   const lerp = (a, b, t) => a + (b - a) * t;
   const TABLETOP_CRUISE_SPEED = 310;
   const TABLETOP_FULL_SPEED = 880;
+  const FORWARD_RESPONSE = 32;
   const MAX_FRAME_SECONDS = 0.1;
   const MAX_STEP_SECONDS = 0.02;
   const REMOTE_INPUT_TIMEOUT_MS = 350;
@@ -444,7 +445,7 @@
         screenY: this.height * this.rig.anchorY,
         vx: 0,
         vy: 0,
-        cruiseSpeed: 220,
+        cruiseSpeed: this.rig.mode === 'tabletop' ? TABLETOP_CRUISE_SPEED : 280,
         bank: 0,
         cameraRoll: 0,
         hp: 100,
@@ -655,7 +656,7 @@
       if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
       if (previous.mode !== this.rig.mode) {
-        // Enemy shots bake the camera speed into their velocity, so they would hang or rush after a switch
+        // Existing shots use the previous mode's reference frame.
         for (const b of this.enemyBullets) b.life = 0;
         if (this.rig.mode === 'arcade') {
           this.player.screenX = this.width * 0.5;
@@ -1464,6 +1465,8 @@
 
       // Movement & Camera Illusion Physics
       const maxLatSpeed = 490 * this.traits.lateral;
+      const startX = this._playerWorldX();
+      const startY = this._playerWorldY();
       p.bank = lerp(p.bank, inp.vx, 1 - Math.exp(-dt * 11));
 
       if (this.rig.mode === 'tabletop') {
@@ -1477,12 +1480,14 @@
         const targetCruise = forward > 0
           ? lerp(TABLETOP_CRUISE_SPEED, TABLETOP_FULL_SPEED, throttle)
           : lerp(TABLETOP_CRUISE_SPEED, 155, inp.vy);
-        const response = forward > 0 && p.cruiseSpeed < targetCruise ? 14 : 8;
+        const response = forward > 0 || p.cruiseSpeed > TABLETOP_CRUISE_SPEED ? FORWARD_RESPONSE : 8;
+        const priorSpeed = p.cruiseSpeed;
         p.cruiseSpeed = lerp(p.cruiseSpeed, targetCruise, 1 - Math.exp(-dt * response));
         p.vy = -p.cruiseSpeed;
 
         p.worldX += p.vx * dt;
-        p.worldY += p.vy * dt;
+        // Integrate the changing speed across this step, keeping short dodges consistent across frame rates.
+        p.worldY -= targetCruise * dt + (priorSpeed - p.cruiseSpeed) / response;
 
         const targetRoll = -p.bank * 0.132 + (p.rollTimer > 0 ? Math.sin((p.rollTimer / 0.62) * Math.PI * 2) * 0.24 : 0);
         p.cameraRoll = lerp(p.cameraRoll, targetRoll, 1 - Math.exp(-dt * 10));
@@ -1490,11 +1495,13 @@
         p.cameraRoll = 0;
         p.cruiseSpeed = 280;
         p.vx = lerp(p.vx, inp.vx * 520 * this.traits.lateral, 1 - Math.exp(-dt * 14));
-        const verticalSpeed = inp.vy < 0 ? 650 : 480;
-        p.vy = lerp(p.vy, inp.vy * verticalSpeed, 1 - Math.exp(-dt * 14));
+        const targetVy = inp.vy * (inp.vy < 0 ? 760 : 480);
+        const response = inp.vy < 0 || p.vy < 0 ? FORWARD_RESPONSE : 14;
+        const priorVy = p.vy;
+        p.vy = lerp(p.vy, targetVy, 1 - Math.exp(-dt * response));
         const halfW = 34;
         p.screenX = clamp(p.screenX + p.vx * dt, halfW, this.width - halfW);
-        p.screenY = clamp(p.screenY + p.vy * dt, 56, this.height - 48);
+        p.screenY = clamp(p.screenY + targetVy * dt + (priorVy - p.vy) / response, 56, this.height - 48);
         p.worldX = p.screenX;
         p.worldY -= p.cruiseSpeed * dt;
       }
@@ -1560,7 +1567,7 @@
       this._stepHazards(dt, px, py);
       this._stepPlayerBullets(dt, px, py);
       this._stepEnemies(dt, px, py);
-      this._stepEnemyBullets(dt, px, py);
+      this._stepEnemyBullets(dt, px, py, startX, startY);
       this._stepPowerups(dt, px, py);
       if (this.roguelite) {
         this.roguelite.step(dt, {
@@ -2831,7 +2838,8 @@
       const spd = this.tier.bulletSpeed;
       vx *= spd;
       vy *= spd;
-      const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
+      // Shots share the level's cruise, so even a shot fired during a held forward dodge can be cleared.
+      const worldVyOffset = this.rig.mode === 'tabletop' ? -TABLETOP_CRUISE_SPEED : 0;
       this.enemyBullets.push({
         x,
         y,
@@ -2846,7 +2854,7 @@
       });
     }
 
-    _stepEnemyBullets(dt, px, py) {
+    _stepEnemyBullets(dt, px, py, startX = px, startY = py) {
       // Only a small, visible core takes bullet damage (shmup convention); the rest of the toy can graze
       const coreR = this.hitCoreR;
       const sat = this._satellitePos();
@@ -2875,6 +2883,8 @@
             b.vy = lerp(b.vy, Math.sin(ang) * 760, Math.min(1, dt * 6));
           }
         }
+        const fromX = b.x - (b.born === this.time ? px : startX);
+        const fromY = b.y - (b.born === this.time ? py : startY);
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
@@ -2910,7 +2920,12 @@
         const dx = Math.abs(b.x - px);
         const dy = Math.abs(b.y - py);
 
-        if (Math.hypot(dx, dy) < coreR + b.r * 0.6) {
+        // Test the relative path through the hit core so a fast opposing pass cannot skip a hit.
+        const pathX = b.x - px - fromX;
+        const pathY = b.y - py - fromY;
+        const path2 = pathX * pathX + pathY * pathY;
+        const t = path2 ? clamp(-(fromX * pathX + fromY * pathY) / path2, 0, 1) : 0;
+        if (Math.hypot(fromX + pathX * t, fromY + pathY * t) < coreR + b.r * 0.6) {
           this.enemyBullets.splice(i, 1);
           this._hurtPlayer(14);
           continue;
