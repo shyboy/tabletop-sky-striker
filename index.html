@@ -1343,6 +1343,7 @@
           <div class="stat-cell">
             <span>收集金星</span>
             <strong id="go-medals">0</strong>
+            <small id="go-routes" hidden></small>
           </div>
         </div>
 
@@ -1391,10 +1392,11 @@
           <ul class="help-grid">
             <li><span class="pw-ico" style="--c:#38bdf8">P</span><b>火力升级</b>子弹更多更强；每一幕的上限更高一级（左上角暗格＝本幕还能升）</li>
             <li><span class="pw-ico" style="--c:#67e8f9">S</span><b>能量护盾</b>抵挡一次伤害，最多两层</li>
-            <li><span class="pw-ico" style="--c:#6ee7b7">D</span><b>浮游僚机</b>两侧自动瞄准开火，最多 4 架</li>
-            <li><span class="pw-ico" style="--c:#4ade80">+</span><b>机体修复</b>恢复 30% 耐久</li>
+            <li><span class="pw-ico" style="--c:#6ee7b7">D</span><b>浮游僚机</b>基础上限 4 架，蜂群编队最高可扩至 6 架</li>
+            <li><span class="pw-ico" style="--c:#4ade80">+</span><b>机体修复</b>恢复 30 点耐久</li>
             <li><span class="pw-ico" style="--c:#fb923c">N</span><b>战术核弹</b>+1 枚，最多 3 枚；击落 48 架也会自动充能</li>
             <li><span class="pw-ico star" style="--c:#facc15">★</span><b>金星连锁</b>连续拾取越来越值钱（100→1000），漏掉或受伤重置</li>
+            <li><span class="pw-ico" style="--c:#a5f3fc">✦</span><b>引航星线</b>沿青色虚线收集 6 颗四芒星，每颗 50 分。收齐再得 800 分，随后 4 秒会吸来附近的掉落道具。</li>
           </ul>
         </section>
 
@@ -1918,6 +1920,9 @@
           goKills.textContent = String(st.kills || 0);
           goCombo.textContent = String(st.maxCombo || 0);
           goMedals.textContent = String(st.medals || 0);
+          const goRoutes = document.getElementById('go-routes');
+          goRoutes.hidden = !st.perfectRoutes;
+          goRoutes.textContent = st.perfectRoutes ? `完整星线 ${st.perfectRoutes} 条` : '';
           const run = st.lastRun || {};
           goRank.textContent = run.rank || 'C';
           goRank.dataset.rank = run.rank || 'C';

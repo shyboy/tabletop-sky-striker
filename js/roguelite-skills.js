@@ -45,6 +45,11 @@
     return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">${body}</svg>`;
   }
 
+  // Total benefit at the selected star count. Cards and combat read the same values.
+  const MISSILE_INTERVAL = [0, 2.2, 1.9, 1.6];
+  const MISSILE_DAMAGE = [0, 30, 36, 42];
+  const HULL_BONUS = [0, 20, 40, 60];
+  const HULL_REGEN = [0, 0.6, 1.2, 1.8];
   const SKILL_POOL = [
     // 1. 弹道系
     {
@@ -57,11 +62,11 @@
     },
     {
       id: 'homing_pod', name: '追踪微导弹', category: '弹道', rarity: 'rare', maxStars: 3, icon: 'missile', iconEmoji: '🚀',
-      desc: (lv) => `每 ${[2.2, 1.65, 1.2][lv - 1]} 秒自动齐射 ${lv + 1} 枚智能寻敌微导弹。`
+      desc: (lv) => `每 ${MISSILE_INTERVAL[lv]} 秒自动齐射 ${lv + 1} 枚追踪弹，每枚基础伤害 ${MISSILE_DAMAGE[lv]}。射速强化可缩短间隔。`
     },
     {
       id: 'overclock_barrel', name: '狂热射速', category: '弹道', rarity: 'common', maxStars: 3, icon: 'rapid', iconEmoji: '🔥',
-      desc: (lv) => `主炮与僚机射击频率提升 +${[18, 35, 52][lv - 1]}%。`
+      desc: (lv) => `主炮、僚机与追踪微导弹的射击频率提升 ${[18, 35, 52][lv - 1]}%。`
     },
     {
       id: 'crit_core', name: '弱点超载', category: '弹道', rarity: 'common', maxStars: 3, icon: 'crit', iconEmoji: '🎯',
@@ -70,7 +75,7 @@
     // 2. 借风气旋系
     {
       id: 'wind_blades', name: '顺风风刃', category: '借风', rarity: 'rare', maxStars: 3, icon: 'windblade', iconEmoji: '🌪',
-      desc: (lv) => `大顺风或持续吹气时向前斩出 ${[2, 3, 5][lv - 1]} 道穿透弯月风刃。`
+      desc: (lv) => `大顺风斩出 ${[2, 3, 5][lv - 1]} 道风刃；持续吹气时每 1.15 秒追加 ${Math.min(3, lv + 1)} 道。`
     },
     {
       id: 'wind_magnet', name: '气旋磁极', category: '借风', rarity: 'common', maxStars: 3, icon: 'magnet', iconEmoji: '🧲',
@@ -87,7 +92,7 @@
     // 3. 僚机与环轨系
     {
       id: 'drone_swarm', name: '蜂群编队', category: '僚机', rarity: 'rare', maxStars: 3, icon: 'drone', iconEmoji: '🛸',
-      desc: (lv) => `立即 +1 架浮游僚机（上限扩至 6 架），全僚机伤害 +${[22, 44, 70][lv - 1]}%。`
+      desc: (lv) => `立即 +1 架浮游僚机（上限 ${4 + Math.min(2, lv)} 架），全僚机伤害 +${[22, 44, 70][lv - 1]}%。`
     },
     {
       id: 'tesla_chain', name: '雷霆锁链', category: '僚机', rarity: 'rare', maxStars: 3, icon: 'tesla', iconEmoji: '🌩',
@@ -113,7 +118,7 @@
     // 5. 机甲生存系
     {
       id: 'nano_hull', name: '纳米装甲', category: '机甲', rarity: 'common', maxStars: 3, icon: 'hull', iconEmoji: '🛡',
-      desc: (lv) => `最大耐久 +${[25, 50, 80][lv - 1]} 并立即回复 35% 耐久，获得每秒 ${[1.4, 2.8, 4.5][lv - 1]} 点自修。`
+      desc: (lv) => `最大耐久加成升至 +${HULL_BONUS[lv]}，立即回复 35% 耐久；受击保护结束后每秒自修 ${HULL_REGEN[lv]} 点。`
     },
     {
       id: 'phase_aegis', name: '相位护盾', category: '机甲', rarity: 'rare', maxStars: 3, icon: 'shield', iconEmoji: '🔷',
@@ -127,7 +132,7 @@
     {
       id: 'awakening_barrage', name: '【觉醒】天穹万剑归宗', category: '觉醒', rarity: 'epic', maxStars: 1, icon: 'awakening', iconEmoji: '⚔️',
       requires: ['split_prism', 'homing_pod'], minLv: 5,
-      desc: () => `战机形态觉醒！每 6 轮主炮自动齐射 8 枚金色追踪圣剑光弹，全伤害 +18%。`
+      desc: () => `每 6 轮主炮齐射 8 枚金色追踪剑。主炮与追踪微导弹伤害 +18%。`
     },
     {
       id: 'awakening_tempest', name: '【觉醒】九级飓风领域', category: '觉醒', rarity: 'epic', maxStars: 1, icon: 'awakening', iconEmoji: '🌪️',
@@ -137,15 +142,15 @@
     {
       id: 'awakening_rail', name: '【觉醒】阳电子破城炮', category: '觉醒', rarity: 'epic', maxStars: 1, icon: 'awakening', iconEmoji: '🌟',
       requires: ['rail_capacitor', 'rail_aftershock'], minLv: 5,
-      desc: () => `战机形态觉醒！磁轨炮进化为金青阳电子巨炮，伤害 +65% 并全屏感电震慑敌机。`
+      desc: () => `磁轨光束伤害 +65%、宽度 +35%，开火时对全屏敌机追加感电伤害。`
     }
   ];
 
   const SKILL_MAP = Object.fromEntries(SKILL_POOL.map((s) => [s.id, s]));
 
   function xpRequiredFor(level) {
-    // Lv.1 -> Lv.2: 34 XP (~15-22s), then smooth growth so 8-10min run reaches Lv.11-14
-    return Math.round(24 + level * 14 + Math.pow(level, 1.55) * 6);
+    // The first draft costs nine scouts' worth of unmodified XP.
+    return Math.round(16 + level * 14 + Math.pow(level, 1.55) * 6);
   }
 
   class SkyRoguelite {
@@ -546,8 +551,8 @@
         railPerfectWindowMult: 1 + [0, 0.45, 0.9, 1.35][railLv],
         railAwakened: Boolean(s.awakening_rail),
         railDamageMult: s.awakening_rail ? 1.65 : 1,
-        maxHpBonus: [0, 25, 50, 80][hullLv],
-        hullRegenPerSec: [0, 1.4, 2.8, 4.5][hullLv],
+        maxHpBonus: HULL_BONUS[hullLv],
+        hullRegenPerSec: HULL_REGEN[hullLv],
         autoShieldInterval: shieldLv > 0 ? [0, 26, 20, 14][shieldLv] : 0,
         grazeRadiusMult: grazeLv > 0 ? 1.35 : 1,
         grazeGustReduce: [0, 0.4, 0.7, 1.0][grazeLv],
@@ -585,17 +590,17 @@
         sentinel: [20, 4, 1]
       };
       const [tot, cnt, tier] = table[enemyType] || [5, 1, 0];
-      const per = Math.max(2, Math.round(tot / cnt));
       for (let i = 0; i < cnt; i++) {
-        this.spawnXp(x + (Math.random() - 0.5) * 16, y + (Math.random() - 0.5) * 16, per, tier);
+        const amount = Math.floor(tot / cnt) + (i < tot % cnt ? 1 : 0);
+        this.spawnXp(x + (Math.random() - 0.5) * 16, y + (Math.random() - 0.5) * 16, amount, tier);
       }
     }
 
     spawnXpBurst(x, y, totalAmount = 45, count = 8) {
-      const per = Math.max(3, Math.round(totalAmount / Math.max(1, count)));
       for (let i = 0; i < count; i++) {
-        const tier = per >= 10 ? 2 : (per >= 6 ? 1 : 0);
-        this.spawnXp(x + (Math.random() - 0.5) * 28, y + (Math.random() - 0.5) * 28, per, tier);
+        const amount = Math.floor(totalAmount / count) + (i < totalAmount % count ? 1 : 0);
+        const tier = amount >= 10 ? 2 : (amount >= 6 ? 1 : 0);
+        this.spawnXp(x + (Math.random() - 0.5) * 28, y + (Math.random() - 0.5) * 28, amount, tier);
       }
     }
 
@@ -1080,7 +1085,7 @@
       if (missileLv > 0 && enemies.length > 0) {
         this.missileTimer -= dt;
         if (this.missileTimer <= 0) {
-          this.missileTimer = [2.2, 1.65, 1.2][missileLv - 1] / mods.fireRateMult;
+          this.missileTimer = MISSILE_INTERVAL[missileLv] / mods.fireRateMult;
           const cnt = missileLv + 1;
           if (this.sfx && this.sfx.missileLaunch) this.sfx.missileLaunch();
           for (let k = 0; k < cnt; k++) {
@@ -1090,7 +1095,7 @@
               y: playerY - 12,
               vx: Math.sin(spread) * 190,
               vy: -340 + worldVyOffset,
-              dmg: (26 + missileLv * 10) * mods.damageMult,
+              dmg: MISSILE_DAMAGE[missileLv] * mods.damageMult,
               life: 3.0,
               sword: false,
               trail: []

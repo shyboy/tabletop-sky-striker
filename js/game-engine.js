@@ -62,8 +62,15 @@
   // Seconds of normal flight in each chapter before its blockade boss shows up (endless legs use the last+)
   const CHAPTER_LENGTH = [95, 120, 140];
   const ENDLESS_LENGTH = 110;
+  const STAR_ROUTE = {
+    chapterMarks: [0.10, 0.32, 0.65, 0.85],
+    count: 6, points: 50, bonus: 800, magnetSeconds: 4, drift: 165
+  };
   // Story boss hull per chapter (endless loops scale the last one up)
   const BOSS_HP = [3200, 5400, 7200];
+  const ENEMY_HULL = { scout: 26, gunship: 115, lancer: 42, weaver: 30, bomber: 210, sentinel: 260, mine: 18, escort: 22 };
+  const INCOMING_DAMAGE = { bullet: 14, lightning: 18, collision: 22 };
+  const BOSS_XP_THRESHOLDS = [0.8, 0.6, 0.4, 0.2];
   // Firepower ceiling grows with the voyage: Lv2 in act I, Lv3 in act II, Lv4 in act III, Lv5 in the endless route
   const MAX_WEAPON_LV = 5;
 
@@ -77,9 +84,9 @@
     bomber: { icon: '🛫', title: '轰炸机', text: '会沿途丢水雷、撒扇形弹。优先集火，掉落护盾和僚机。' },
     sentinel: { icon: '🌸', title: '哨塔', text: '停在空中旋转喷弹幕。磁轨炮或核弹能快速拆掉它。' },
     weapon: { icon: 'P', color: '#38bdf8', title: '火力升级', text: '子弹更多更强。每一幕能升到更高一级。' },
-    heal: { icon: '+', color: '#4ade80', title: '机体修复', text: '恢复 30% 耐久。' },
+    heal: { icon: '+', color: '#4ade80', title: '机体修复', text: '恢复 30 点耐久，最多回到机体上限。' },
     shield: { icon: 'S', color: '#67e8f9', title: '能量护盾', text: '抵挡一次伤害，最多叠两层。' },
-    drone: { icon: 'D', color: '#6ee7b7', title: '浮游僚机', text: '在两侧自动瞄准开火，最多 4 架。' },
+    drone: { icon: 'D', color: '#6ee7b7', title: '浮游僚机', text: '在两侧自动瞄准开火，基础上限 4 架，蜂群编队最高可扩至 6 架。' },
     nuke: { icon: 'N', color: '#fb923c', title: '战术核弹', text: '清掉全屏子弹和杂兵。键盘 K / 手柄 ○ / 手机大按钮。' },
     medal: { icon: '★', color: '#facc15', title: '金星连锁', text: '连续拾取价值从 100 涨到 1000；漏掉或受伤就重置。' },
     lowHp: { icon: '⚠', color: '#f87171', title: '机体告急', text: '找绿色「+」修复，或用顺风、翻滚先躲一躲。' },
@@ -407,6 +414,10 @@
       this.bossKills = 0;
       this.maxCombo = 0;
       this.medalsCollected = 0;
+      this.starRoute = null;
+      this.starRouteIndex = 0;
+      this.starMagnet = 0;
+      this.perfectRoutes = 0;
       this.medalValue = 100;
       this.storyCleared = false;
       this.slowMo = 0;
@@ -696,6 +707,9 @@
       }
       for (const hz of this.hazards) hz.x += dx;
       for (const p of this.powerups) { p.x += dx; p.y += dy; }
+      if (this.starRoute) {
+        for (const star of this.starRoute.stars) { star.x += dx; star.y += dy; }
+      }
       for (const pt of this.particles) { pt.x += dx; pt.y += dy; }
       for (const sw of this.shockwaves) { sw.x += dx; sw.y += dy; }
       for (const ft of this.floatingTexts) { ft.x += dx; ft.y += dy; }
@@ -744,6 +758,7 @@
         bossKills: this.bossKills,
         maxCombo: this.maxCombo,
         medals: this.medalsCollected,
+        perfectRoutes: this.perfectRoutes,
         best: { ...this.best },
         lastRun: this.lastRun
       };
@@ -1568,6 +1583,7 @@
       this._stepPlayerBullets(dt, px, py);
       this._stepEnemies(dt, px, py);
       this._stepEnemyBullets(dt, px, py, startX, startY);
+      this._stepStarRoute(dt, px, py);
       this._stepPowerups(dt, px, py);
       if (this.roguelite) {
         this.roguelite.step(dt, {
@@ -1854,7 +1870,8 @@
       }
       this._tip(type);
       const spanW = Math.min(this.width * 0.84, 760);
-      const base = (extra) => ({ phase: Math.random() * Math.PI * 2, age: 0, hitFlash: 0, ...extra });
+      const hp = ENEMY_HULL[type] * difficulty;
+      const base = (extra) => ({ hp, maxHp: hp, phase: Math.random() * Math.PI * 2, age: 0, hitFlash: 0, ...extra });
 
       if (type === 'scout') {
         const pr = this._pressure();
@@ -1865,14 +1882,14 @@
           this.enemies.push(base({
             type: 'scout', x: startX + dir * i * 48, y: topSpawnY - i * 42,
             vx: -dir * 65, vy: 155 * Math.min(1.5, difficulty * 0.75),
-            hp: 26 * difficulty, maxHp: 26 * difficulty, radius: 20,
+            radius: 20,
             fireTimer: 0.9 + i * 0.25, scoreVal: 110
           }));
         }
       } else if (type === 'gunship') {
         this.enemies.push(base({
           type: 'gunship', x: px + (Math.random() - 0.5) * spanW * 0.75, y: topSpawnY - 20,
-          vx: 0, vy: 95, hp: 115 * difficulty, maxHp: 115 * difficulty, radius: 32,
+          vx: 0, vy: 95, radius: 32,
           fireTimer: 0.8, dropsLoot: true, scoreVal: 340
         }));
       } else if (type === 'lancer') {
@@ -1880,7 +1897,7 @@
         for (let i = 0; i < n; i++) {
           this.enemies.push(base({
             type: 'lancer', x: px + (Math.random() - 0.5) * spanW * 0.85, y: topSpawnY - 10 - i * 60,
-            vx: 0, vy: 60, hp: 42 * difficulty, maxHp: 42 * difficulty, radius: 21,
+            vx: 0, vy: 60, radius: 21,
             chargeWarn: 0.75 + i * 0.35, dashed: false, fireTimer: 99, scoreVal: 190
           }));
         }
@@ -1894,21 +1911,21 @@
           this.enemies.push(base({
             type: 'weaver', x: edgeX + (fromLeft ? -1 : 1) * i * 58, y: rowY,
             baseY: rowY, vx: (fromLeft ? 1 : -1) * 230, vy: 0, phase: i * 0.7,
-            hp: 30 * difficulty, maxHp: 30 * difficulty, radius: 18,
+            radius: 18,
             fireTimer: 1.2 + i * 0.3, scoreVal: 150, sideCull: true
           }));
         }
       } else if (type === 'bomber') {
         this.enemies.push(base({
           type: 'bomber', x: px + (Math.random() - 0.5) * spanW * 0.6, y: topSpawnY - 30,
-          vx: (Math.random() < 0.5 ? -1 : 1) * 45, vy: 62, hp: 210 * difficulty, maxHp: 210 * difficulty,
+          vx: (Math.random() < 0.5 ? -1 : 1) * 45, vy: 62,
           radius: 40, fireTimer: 1.4, mineTimer: 1.1, dropsLoot: true, scoreVal: 520
         }));
       } else if (type === 'sentinel') {
         // Parks in the upper sky and spins a flower of bullets until destroyed
         this.enemies.push(base({
           type: 'sentinel', x: px + (Math.random() - 0.5) * spanW * 0.6, y: topSpawnY - 20,
-          vx: 0, vy: 140, parkY: 0.24 + Math.random() * 0.14, hp: 260 * difficulty, maxHp: 260 * difficulty,
+          vx: 0, vy: 140, parkY: 0.24 + Math.random() * 0.14,
           radius: 34, fireTimer: 1.0, spin: 0, stay: 7.5, dropsLoot: true, scoreVal: 640
         }));
       } else if (type === 'mine') {
@@ -1920,14 +1937,16 @@
     }
 
     _spawnMine(x, y, difficulty = this._difficulty()) {
+      const hp = ENEMY_HULL.mine * difficulty;
       this.enemies.push({
         type: 'mine', x, y, vx: 0, vy: 0, phase: Math.random() * 6, age: 0, hitFlash: 0,
-        hp: 18 * difficulty, maxHp: 18 * difficulty, radius: 15, fireTimer: 99,
+        hp, maxHp: hp, radius: 15, fireTimer: 99,
         armTimer: -1, scoreVal: 80, worldStatic: true
       });
     }
 
     _spawnBoss(px, topSpawnY) {
+      this.starRoute = null;
       const ch = this.getCurrentChapter();
       const kind = BOSS_ORDER[ch.idx];
       const def = BOSS_DEFS[kind];
@@ -2017,12 +2036,11 @@
       e.hitFlash = 0.08;
 
       // Boss phase XP fountain: every 20% HP lost showers XP gems so player levels up mid-boss too!
-      if (e.isBoss && e.hp > 0 && this.roguelite) {
-        const nextHpRatio = e.hp / e.maxHp;
-        const prevStep = Math.floor(prevHpRatio * 5);
-        const nextStep = Math.floor(nextHpRatio * 5);
-        if (nextStep < prevStep) {
-          this.roguelite.spawnXpBurst(e.x, e.y + 24, 34, 7);
+      if (e.isBoss && this.roguelite) {
+        for (const threshold of BOSS_XP_THRESHOLDS) {
+          if (prevHpRatio > threshold && e.hp <= e.maxHp * threshold) {
+            this.roguelite.spawnXpBurst(e.x, e.y + 24, 34, 7);
+          }
         }
       }
 
@@ -2109,6 +2127,8 @@
       this.bossKills++;
       const clearedWave = this.wave;
       this.wave++;
+      this.starRouteIndex = 0;
+      this.starRoute = null;
       // The next chapter's clock starts from zero: it gets its full length before the next blockade
       this.chapterTime = 0;
       this.supplyDropped = false;
@@ -2447,6 +2467,52 @@
       }
     }
 
+    _stepStarRoute(dt, px, py) {
+      if (this.phase !== 'playing') return;
+      this.starMagnet = Math.max(0, this.starMagnet - dt);
+      if (this.tutorial || this.boss || this.victoryHoldTimer > 0) return;
+      const tabletop = this.rig.mode === 'tabletop';
+      const threshold = STAR_ROUTE.chapterMarks[this.starRouteIndex];
+      if (!this.starRoute && threshold !== undefined && this.chapterProgress >= threshold) {
+        let direction = (this.starRouteIndex + this.wave) % 2 ? 1 : -1;
+        this.starRouteIndex++;
+        const bend = Math.min(145, this.width * 0.22);
+        const outerX = px + direction * bend;
+        if (!tabletop && (outerX > this.width - 36 || outerX < 36)) direction *= -1;
+        const lead = Math.min(220, this.height * 0.38);
+        const stars = Array.from({ length: STAR_ROUTE.count }, (_, i) => ({
+          x: px + direction * bend * Math.sin(i * Math.PI / (STAR_ROUTE.count - 1)),
+          y: py - lead - i * 80, collected: false
+        }));
+        this.starRoute = { stars, collected: 0 };
+      }
+      const route = this.starRoute;
+      if (!route) return;
+      // Scroll in screen space for a predictable line at both cruise and full throttle.
+      const dy = (STAR_ROUTE.drift - (tabletop ? this.player.cruiseSpeed : 0)) * dt;
+      const radius = tabletop ? clamp(this.rig.width * 0.42, 30, 48) : 32;
+      for (const star of route.stars) {
+        star.y += dy;
+        if (star.collected || Math.hypot(star.x - px, star.y - py) > radius) continue;
+        star.collected = true;
+        route.collected++;
+        this.score += STAR_ROUTE.points;
+        this._sfx('medal', route.collected);
+      }
+      if (route.collected === STAR_ROUTE.count) {
+        this.score += STAR_ROUTE.bonus;
+        this.perfectRoutes++;
+        this.starMagnet = STAR_ROUTE.magnetSeconds;
+        this._sfx('shieldUp');
+        this.floatingTexts.push({ x: px, y: py - 62, text: `星线全收 +${STAR_ROUTE.bonus}`, color: '#a5f3fc', life: 1.4 });
+        this._stateDirty = true;
+        this.starRoute = null;
+      } else {
+        const bottom = tabletop ? py + this.height * (1 - this.rig.anchorY) : this.height;
+        if (route.stars[route.stars.length - 1].y > bottom + radius) this.starRoute = null;
+      }
+    }
+
     _spawnPowerup(x, y, kind) {
       this.powerups.push({
         x,
@@ -2616,7 +2682,7 @@
             this._damageEnemy(e, 9999, i);
             if (e.dead) continue;
           }
-          const landed = this._hurtPlayer(22);
+          const landed = this._hurtPlayer(INCOMING_DAMAGE.collision);
           if (!e.isBoss) {
             // A real collision destroys the attacker; brushing past while invulnerable only scrapes it
             this._damageEnemy(e, landed ? 9999 : 160 * dt, i);
@@ -2762,11 +2828,12 @@
         if (pat === 0) {
           // Hangar launch: mothership deploys escort scouts
           const n = e.enraged ? 4 : 3;
+          const escortHp = ENEMY_HULL.escort * this._difficulty();
           for (let k = 0; k < n; k++) {
             const side = k % 2 ? 1 : -1;
             this.enemies.push({
               type: 'scout', x: e.x + side * (50 + k * 14), y: e.y + 20, vx: side * 120, vy: 140,
-              hp: 22 * this._difficulty(), maxHp: 22 * this._difficulty(), radius: 18,
+              hp: escortHp, maxHp: escortHp, radius: 18,
               fireTimer: 1.4 + k * 0.2, phase: k, age: 0, hitFlash: 0, scoreVal: 90, fromHangar: true, launchShield: 1.3
             });
           }
@@ -2816,7 +2883,7 @@
         }
         hz.active -= dt;
         if (Math.abs(px - hz.x) < hz.halfW + hitHalfW) {
-          this._hurtPlayer(18);
+          this._hurtPlayer(INCOMING_DAMAGE.lightning);
           if (this.phase !== 'playing') {
             this.hazards.length = 0;
             return;
@@ -2927,7 +2994,7 @@
         const t = path2 ? clamp(-(fromX * pathX + fromY * pathY) / path2, 0, 1) : 0;
         if (Math.hypot(fromX + pathX * t, fromY + pathY * t) < coreR + b.r * 0.6) {
           this.enemyBullets.splice(i, 1);
-          this._hurtPlayer(14);
+          this._hurtPlayer(INCOMING_DAMAGE.bullet);
           continue;
         }
 
@@ -2956,7 +3023,8 @@
         pw.life -= dt;
         pw.spin += dt * 4;
         const d = Math.hypot(px - pw.x, py - pw.y);
-        if (d < (pw.kind === 'medal' ? 150 : 190) * mods.pickupRadiusMult) pw.magnet = true;
+        const magnetRadius = Math.max((pw.kind === 'medal' ? 150 : 190) * mods.pickupRadiusMult, this.starMagnet > 0 ? 420 : 0);
+        if (d < magnetRadius) pw.magnet = true;
 
         if (pw.magnet) {
           const ang = Math.atan2(py - pw.y, px - pw.x);
@@ -2993,8 +3061,9 @@
                 text = p.weaponLv >= MAX_WEAPON_LV ? '满级火力 +300' : `本幕火力已满 Lv.${p.weaponLv} · +300`;
               }
             } else if (pw.kind === 'heal') {
-              p.hp = Math.min(p.maxHp, p.hp + 30);
-              text = '机体修复 +30%';
+              const repaired = Math.min(30, p.maxHp - p.hp);
+              p.hp += repaired;
+              text = repaired > 0 ? `机体修复 +${Math.ceil(repaired)} 点` : '机体耐久已满';
               color = '#86efac';
             } else if (pw.kind === 'nuke') {
               p.nukes = Math.min(p.maxNukes, p.nukes + 1);
@@ -4623,6 +4692,49 @@
     }
 
     _renderPowerups(ctx) {
+      const route = this.starRoute;
+      if (route) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(103, 232, 249, 0.52)';
+        ctx.setLineDash([4, 8]);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(route.stars[0].x, route.stars[0].y);
+        for (let i = 1; i < route.stars.length; i++) ctx.lineTo(route.stars[i].x, route.stars[i].y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (const star of route.stars) {
+          if (star.collected) continue;
+          ctx.beginPath();
+          ctx.arc(star.x, star.y, 15, 0, Math.PI * 2);
+          ctx.fillStyle = '#143444';
+          ctx.fill();
+          ctx.strokeStyle = '#8ff3f7';
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(star.x, star.y - 11);
+          for (let k = 1; k < 8; k++) {
+            const angle = k * Math.PI / 4 - Math.PI / 2;
+            const r = k % 2 ? 3.6 : 11;
+            ctx.lineTo(star.x + Math.cos(angle) * r, star.y + Math.sin(angle) * r);
+          }
+          ctx.closePath();
+          ctx.fillStyle = '#fee799';
+          ctx.fill();
+        }
+        const last = route.stars[route.stars.length - 1];
+        if (!last.collected) {
+          ctx.textAlign = 'center';
+          ctx.font = '700 13px system-ui, sans-serif';
+          ctx.strokeStyle = '#143444';
+          ctx.lineWidth = 3;
+          ctx.fillStyle = '#d9ffff';
+          const label = `全收 +${STAR_ROUTE.bonus}`;
+          ctx.strokeText(label, last.x, last.y - 24);
+          ctx.fillText(label, last.x, last.y - 24);
+        }
+        ctx.restore();
+      }
       const STYLE = {
         weapon: ['#38bdf8', 'P'],
         heal: ['#4ade80', '+'],
@@ -4852,7 +4964,7 @@
     }
 
     _hudPanelH() {
-      const rows = (this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
+      const rows = (this.starRoute || this.starMagnet > 0 || this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
       return rows + (this.roguelite ? 18 : 0);
     }
 
@@ -5027,12 +5139,15 @@
         const r5 = y0 + 77;
         ctx.textAlign = 'left';
         ctx.font = '700 10px system-ui, -apple-system, sans-serif';
-        if (this.medalValue > 100) {
+        if (this.starRoute || this.starMagnet > 0) {
+          ctx.fillStyle = '#a5f3fc';
+          ctx.fillText(this.starRoute ? `✦ 星线 ${this.starRoute.collected}/${STAR_ROUTE.count}` : `吸附 ${Math.ceil(this.starMagnet)}s`, L, r5);
+        } else if (this.medalValue > 100) {
           ctx.fillStyle = '#facc15';
           ctx.fillText(`★${this.medalValue}`, L, r5);
         }
         if (this.breath > 0.1 || this.lungs < 0.999) {
-          const lx = L + 48;
+          const lx = L + 62;
           ctx.fillStyle = this.lungsExhausted ? '#94a3b8' : '#a5f3fc';
           ctx.fillText(this.lungsExhausted ? '换气中' : '肺活量', lx, r5);
           const lw = R - (lx + 40);

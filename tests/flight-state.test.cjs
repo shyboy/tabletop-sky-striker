@@ -172,6 +172,90 @@ test('a medal pulled from behind still reaches the toy at maximum forward speed'
 });
 
 const REMOTE_CONTROLS = { vx: 0.8, vy: -0.6, firing: true, railCharge: 1, micLevel: 0.5 };
+
+test('steering along all six guide stars awards one bonus and attracts distant loot in either mode', () => {
+  for (const mode of ['arcade', 'tabletop']) {
+    const { engine } = createFlight();
+    engine.updateRig({ mode }, false);
+    engine.startMission({ tutorial: false });
+    engine.chapterTime = engine._chapterLength() * 0.10;
+    engine.spawnTimer = 100;
+    engine.step(1 / 60);
+    assert.equal(engine.starRoute.stars.length, 6);
+    const startScore = engine.score;
+    const firstY = engine.starRoute.stars[0].y;
+    engine.setManualPause(true);
+    advance(engine, 20);
+    assert.equal(engine.starRoute.stars[0].y, firstY);
+    engine.setManualPause(false);
+    for (let frame = 0; frame < 420 && engine.starRoute; frame++) {
+      const target = engine.starRoute.stars.find(s => !s.collected);
+      const dx = target.x - engine._playerWorldX();
+      engine.setRemoteInput({ vx: Math.max(-1, Math.min(1, dx / 45)), vy: 0, firing: false });
+      engine.step(1 / 60);
+    }
+    assert.equal(engine.perfectRoutes, 1, mode);
+    assert.equal(engine.score - startScore, 1100);
+    assert.equal(engine.starMagnet, 4);
+    engine._spawnPowerup(engine._playerWorldX() + 380, engine._playerWorldY(), 'heal');
+    advance(engine, 1);
+    assert.equal(engine.powerups[0].magnet, true);
+    advance(engine, 240);
+    assert.equal(engine.starMagnet, 0);
+    assert.equal(engine.perfectRoutes, 1);
+    engine.startMission({ tutorial: false });
+    assert.equal(engine.perfectRoutes, 0);
+    assert.equal(engine.starRouteIndex, 0);
+  }
+});
+
+test('flying past a star line pays only for touched stars and preserves the gold medal chain', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine.chapterTime = engine._chapterLength() * 0.10;
+  engine.spawnTimer = 100;
+  engine.medalValue = 300;
+  advance(engine, 540);
+  assert.equal(engine.starRoute, null);
+  assert.equal(engine.perfectRoutes, 0);
+  assert.equal(engine.starMagnet, 0);
+  assert.ok(engine.score > 0 && engine.score <= 250);
+  assert.equal(engine.medalValue, 300);
+});
+
+test('narrow-screen HUD switches from tutorial to star count and clears the line at the blockade', () => {
+  const { engine } = createFlight();
+  engine.width = 360;
+  engine.height = 740;
+  engine.startMission({ tutorial: true });
+  const labels = [];
+  const ctx = new Proxy({ fillText: str => labels.push(str) }, { get: (obj, key) => obj[key] || (() => {}) });
+  const hud = () => {
+    labels.length = 0;
+    engine._renderMinimalHUD(ctx, engine.width, engine.height);
+    return labels.join(' ');
+  };
+  advance(engine, 3);
+  assert.match(hud(), /新手引导中/);
+  assert.equal(engine.starRoute, null);
+  engine.skipTutorial();
+  engine.chapterTime = engine._chapterLength() * 0.85;
+  engine.starRouteIndex = 3;
+  engine.supplyDropped = true;
+  engine.spawnTimer = 100;
+  advance(engine, 1);
+  assert.match(hud(), /星线 0\/6/);
+  engine.chapterTime = engine._chapterLength() + 6;
+  engine.starMagnet = 0.25;
+  advance(engine, 1);
+  assert.ok(engine.boss);
+  assert.equal(engine.starRoute, null);
+  assert.match(hud(), /封锁线交战中/);
+  assert.doesNotMatch(hud(), /星线/);
+  advance(engine, 20);
+  assert.equal(engine.starMagnet, 0);
+  assert.doesNotMatch(hud(), /吸附/);
+});
 const NEUTRAL_CONTROLS = { vx: 0, vy: 0, firing: false, railCharge: 0, micLevel: 0 };
 
 test('all remote controls expire during flight, even when the first packet arrives at time zero', () => {
@@ -362,4 +446,36 @@ test('old toy presets load and subsequent calibration survives a reload, includi
   assert.equal(reloaded.player.screenY, 800 * 0.83);
   assert.equal(reloaded.rig.mode, 'tabletop');
   assert.equal(reloaded.rig.godMode, false);
+});
+
+test('boss damage pays each hull milestone once, including those crossed by a finishing shot', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine._spawnBoss(100, 0);
+  const boss = engine.boss;
+  boss.unveiled = 6;
+  const totalXp = () => engine.roguelite.gems.reduce((sum, gem) => sum + gem.amount, 0);
+  engine._damageEnemy(boss, 1);
+  assert.equal(totalXp(), 0);
+  engine._damageEnemy(boss, boss.maxHp / 5 - 1);
+  assert.equal(totalXp(), 34);
+  engine._damageEnemy(boss, 1);
+  assert.equal(totalXp(), 34);
+  engine._damageEnemy(boss, boss.hp);
+  assert.equal(totalXp(), 4 * 34 + 90);
+});
+
+test('XP from mixed kills grants a first draft at exactly 36 even when drops divide unevenly', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  const skills = engine.roguelite;
+  skills.spawnXpFromKill(0, 0, 'bomber');
+  skills.spawnXpFromKill(0, 0, 'gunship');
+  const last = skills.gems.pop();
+  for (const gem of skills.gems) skills.addRawXp(gem.amount);
+  assert.equal(skills.level, 1);
+  skills.addRawXp(last.amount);
+  assert.equal(skills.xp, 0);
+  assert.equal(skills.level, 2);
+  assert.equal(skills.pendingLevelUps, 1);
 });

@@ -1858,7 +1858,9 @@
           const sy = anchorY + (gy + jy) * cell + scrollDist * pf;
 
           const maskA = lane.mask(sx, sy, combatWeight);
-          const alpha = baseOpacity * maskA;
+          // Landmarks at the edge retain their contours while the central lane stays quiet.
+          const edgeLight = (1 - baseOpacity) * maskA * calm.cloud;
+          const alpha = (baseOpacity + edgeLight) * maskA;
           if (alpha <= 0.03) continue;
 
           const sc = 0.62 + (h - 0.56) * 1.05;
