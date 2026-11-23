@@ -156,3 +156,20 @@ test('pressing V cycles and persists the visual filter easter egg across title a
   windowEvents.dispatch('keydown', { code: 'KeyV', repeat: false, preventDefault: noop });
   assert.equal(engine.rig.visualFilter, 'normal');
 });
+
+test('pressing B cycles player bullet styles across title and flight and persists skyStriker.bulletStyle', async () => {
+  const { get, engine, profile, windowEvents } = await openHost('http://localhost:8780/?room=ABCD', endpoints);
+  get('help-overlay').hidden = true;
+  assert.equal(engine.rig.bulletStyle, 'auto');
+
+  windowEvents.dispatch('keydown', { code: 'KeyB', repeat: false, preventDefault: noop });
+  assert.equal(engine.rig.bulletStyle, 'laser');
+  assert.equal(profile.get('skyStriker.bulletStyle'), 'laser');
+  assert.match(get('pc-bullet').textContent, /极光脉冲梭/);
+  assert.match(get('flight-option-summary').textContent, /脉冲梭/);
+
+  engine.startMission({ tutorial: false });
+  windowEvents.dispatch('keydown', { code: 'KeyB', repeat: false, preventDefault: noop });
+  assert.equal(engine.rig.bulletStyle, 'blade');
+  assert.match(get('btn-strip-bullet').textContent, /新月刃/);
+});

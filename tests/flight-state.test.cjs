@@ -171,6 +171,84 @@ test('a medal pulled from behind still reaches the toy at maximum forward speed'
   assert.equal(engine.medalsCollected, 1);
 });
 
+test('tabletop forward flight rushes into ahead powerups, medals, XP gems, and star lines like arcade mode', () => {
+  const framesToCollectPowerup = (mode, vyInput) => {
+    const { engine } = createFlight();
+    engine.updateRig({ mode }, false);
+    engine.startMission({ tutorial: false });
+    engine.spawnTimer = 100;
+    engine._spawnPowerup(engine._playerWorldX(), engine._playerWorldY() - 360, 'weapon');
+    engine.powerups[0].vx = 0;
+    let frames = 0;
+    while (engine.player.weaponLv === 1 && frames < 300) {
+      engine.setRemoteInput({ vy: vyInput, firing: false });
+      engine.step(1 / 60);
+      frames++;
+    }
+    return frames;
+  };
+
+  const tabletopCruiseFrames = framesToCollectPowerup('tabletop', 0);
+  const tabletopForwardFrames = framesToCollectPowerup('tabletop', -1);
+  const arcadeForwardFrames = framesToCollectPowerup('arcade', -1);
+  assert.ok(tabletopCruiseFrames > 100);
+  assert.ok(tabletopForwardFrames <= 26, `expected <= 26 frames, got ${tabletopForwardFrames}`);
+  assert.ok(tabletopForwardFrames <= arcadeForwardFrames, `tabletop (${tabletopForwardFrames}) should match or beat arcade (${arcadeForwardFrames})`);
+
+  // Freshly popped medals (initial upward vy < 0) immediately close screen distance under full forward throttle
+  const { engine: medalEngine } = createFlight();
+  medalEngine.startMission({ tutorial: false });
+  medalEngine.spawnTimer = 100;
+  medalEngine.keys.add('KeyW');
+  advance(medalEngine, 15);
+  medalEngine._spawnPowerup(medalEngine.player.worldX, medalEngine.player.worldY - 320, 'medal');
+  medalEngine.powerups[0].vx = 0;
+  const gapBefore = medalEngine.player.worldY - medalEngine.powerups[0].y;
+  medalEngine.step(1 / 60);
+  const gapAfter = medalEngine.player.worldY - medalEngine.powerups[0].y;
+  assert.ok(gapAfter < gapBefore - 5, 'forward thrust must close distance even while medal pops upward');
+
+  // XP gems ahead are also swept in rapidly when pushing forward, and never drift backward when pulling back
+  const framesToCollectGem = (vyInput) => {
+    const { engine } = createFlight();
+    engine.startMission({ tutorial: false });
+    engine.spawnTimer = 100;
+    engine.roguelite.spawnXp(engine.player.worldX, engine.player.worldY - 360, 10, 1);
+    engine.roguelite.gems[0].vx = 0;
+    engine.roguelite.gems[0].vy = 76;
+    let frames = 0;
+    while (engine.roguelite.gems.length > 0 && frames < 400) {
+      engine.setRemoteInput({ vy: vyInput, firing: false });
+      engine.step(1 / 60);
+      frames++;
+    }
+    return frames;
+  };
+  const gemCruiseFrames = framesToCollectGem(0);
+  const gemForwardFrames = framesToCollectGem(-1);
+  const gemSlowFrames = framesToCollectGem(1);
+  assert.ok(gemCruiseFrames > 160);
+  assert.ok(gemForwardFrames <= 28, `expected <= 28 frames for XP gem, got ${gemForwardFrames}`);
+  assert.ok(gemSlowFrames < 260, 'pulling back to slow flight must still let XP gems descend cleanly');
+
+  // Guide star line closes much faster when pushing forward in tabletop mode
+  const framesToFirstStar = (vyInput) => {
+    const { engine } = createFlight();
+    engine.startMission({ tutorial: false });
+    engine.chapterTime = engine._chapterLength() * 0.10;
+    engine.spawnTimer = 100;
+    engine.step(1 / 60);
+    let frames = 0;
+    while (engine.starRoute && engine.starRoute.collected === 0 && frames < 200) {
+      engine.setRemoteInput({ vy: vyInput, firing: false });
+      engine.step(1 / 60);
+      frames++;
+    }
+    return frames;
+  };
+  assert.ok(framesToFirstStar(-1) * 3 < framesToFirstStar(0));
+});
+
 const REMOTE_CONTROLS = { vx: 0.8, vy: -0.6, firing: true, railCharge: 1, micLevel: 0.5 };
 
 test('steering along all six guide stars awards one bonus and attracts distant loot in either mode', () => {
@@ -504,4 +582,167 @@ test('wingtip contrails record trails in both modes, reset on mode switch, and H
   assert.equal(engine.contrails.left.length, 0);
   advance(engine, 10);
   assert.ok(engine.contrails.left.length > 0 && engine.contrails.right.length > 0);
+});
+
+test('first draft offers three distinct factions, avoids passive-only utility traps, and sorts summary by prestige', () => {
+  for (let trial = 0; trial < 20; trial++) {
+    const { engine } = createFlight();
+    engine.startMission({ tutorial: false });
+    engine.roguelite.addRawXp(36);
+    engine.step(1 / 60);
+    const draft = engine.getPublicState().skillDraft;
+    assert.equal(draft.level, 2);
+    assert.equal(draft.choices.length, 3);
+    const categories = new Set(draft.choices.map((c) => c.category));
+    assert.equal(categories.size, 3, 'Lv.2 starter draft must span 3 distinct factions');
+    for (const c of draft.choices) {
+      assert.equal(['wind_magnet', 'iron_lungs', 'graze_dynamo', 'nano_hull'].includes(c.id), false);
+      assert.ok(c.synergyHint.length > 0);
+    }
+  }
+
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine.roguelite.pickOrder.push('wind_magnet', 'wind_blades', 'awakening_tempest');
+  engine.roguelite.skills.wind_magnet = 1;
+  engine.roguelite.skills.wind_blades = 3;
+  engine.roguelite.skills.awakening_tempest = 1;
+  const topIds = [...engine.getPublicState().pickedSkills.map((s) => s.id)];
+  assert.deepEqual(topIds, ['awakening_tempest', 'wind_blades', 'wind_magnet']);
+});
+
+test('all five factions unlock their epic awakenings on tiered level gates (Lv.5 / Lv.8 / Lv.11)', () => {
+  const cases = [
+    ['split_prism', 'awakening_barrage', 'wind_magnet'],
+    ['wind_blades', 'awakening_tempest', 'split_prism'],
+    ['orbit_orbs', 'awakening_hive', 'split_prism'],
+    ['rail_capacitor', 'awakening_rail', 'split_prism'],
+    ['nano_hull', 'awakening_aegis', 'split_prism']
+  ];
+  for (const [prereq, epicId, filler] of cases) {
+    const { engine } = createFlight();
+    engine.startMission({ tutorial: false });
+    const rg = engine.roguelite;
+    rg.skills[prereq] = 2;
+    rg.level = 4;
+    const atLv4 = rg._rollChoices(new Set(), 4);
+    assert.equal(atLv4.some((c) => c.id === epicId), false, `${epicId} locked before Lv.5`);
+
+    // Keep 3 eligible unexcluded cards (prereq, epicId, and 1 filler) so _rollChoices returns all 3 deterministically
+    const keep = new Set([prereq, epicId, filler]);
+    const excludeOthers = new Set(
+      rg.constructor.SKILL_POOL.filter((sk) => !keep.has(sk.id)).map((sk) => sk.id)
+    );
+    const atLv5 = rg._rollChoices(excludeOthers, 5);
+    assert.equal(atLv5.some((c) => c.id === epicId), true, `${epicId} unlocks at Lv.5 from ${prereq} 2★`);
+  }
+
+  // Verify 2nd awakening requires Lv.8 and 3rd requires Lv.11
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  const rg = engine.roguelite;
+  for (const sk of rg.constructor.SKILL_POOL) {
+    if (sk.rarity !== 'epic') rg.skills[sk.id] = sk.maxStars;
+  }
+  rg.skills.awakening_barrage = 1;
+  assert.equal(rg._rollChoices(new Set(), 7).length, 0, '2nd awakening waits until Lv.8');
+  assert.ok(rg._rollChoices(new Set(), 8).some((c) => c.rarity === 'epic'), '2nd awakening opens at Lv.8');
+  rg.skills.awakening_tempest = 1;
+  assert.equal(rg._rollChoices(new Set(), 10).length, 0, '3rd awakening waits until Lv.11');
+  assert.ok(rg._rollChoices(new Set(), 11).some((c) => c.rarity === 'epic'), '3rd awakening opens at Lv.11');
+  rg.skills.awakening_hive = 1;
+  assert.equal(rg._rollChoices(new Set(), 15).length, 0, 'capped at 3 awakenings max');
+});
+
+test('XP gems pulled from behind still reach the craft at full tabletop throttle without velocity contamination', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine.setRemoteInput({ vy: -1, firing: false });
+  advance(engine, 35);
+  engine.roguelite.spawnXp(engine.player.worldX, engine.player.worldY + 110, 36, 1);
+  advance(engine, 30);
+  assert.equal(engine.roguelite.level, 2);
+});
+
+test('awakening_tempest strictly upgrades 3-star wind_blades, tesla_chain fires 5th-shot fallback, and aegis unlocks 3 shields', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  const rg = engine.roguelite;
+
+  // 1. 3★ wind_blades -> awakening_tempest never downgrades per-blade damage
+  rg.skills.wind_blades = 3;
+  rg.notifyGust(0, 0, 1, 0);
+  const dmgBefore = rg.windBlades.at(-1).dmg;
+  rg.windBlades.length = 0;
+  rg.skills.awakening_tempest = 1;
+  rg.notifyGust(0, 0, 1, 0);
+  const dmgAfter = rg.windBlades.at(-1).dmg;
+  assert.ok(dmgAfter > dmgBefore, `expected ${dmgAfter} > ${dmgBefore}`);
+
+  // 2. Fractional hull regen is preserved when picking unrelated skills, and aegis grants 3-shield cap + break nova
+  engine.player.invulnTimer = 0;
+  engine.player.hp = 50.4;
+  engine._applyToyTraits(false);
+  assert.ok(Math.abs(engine.player.hp - 50.4) < 1e-6);
+
+  rg.skills.awakening_aegis = 1;
+  engine.roguelite.cb.onApplyInstant({ id: 'awakening_aegis', name: '不灭星神装甲', rarity: 'epic' });
+  assert.equal(engine._mods().maxShields, 3);
+  assert.equal(engine.player.shield, 2);
+  engine.crewAction('shield');
+  assert.equal(engine.player.shield, 3);
+
+  const px = engine._playerWorldX();
+  const py = engine._playerWorldY();
+  engine._spawnEnemyBullet(px + 80, py, 0, 100, '#ef4444', 5);
+  engine._hurtPlayer(14);
+  assert.equal(engine.player.shield, 2);
+  assert.equal(engine.enemyBullets.length, 0, 'aegis shield break clears nearby enemy shots');
+
+  // 3. Tesla chain triggers on 5th main volley even with 0 drones and 0% crit, and focuses unused jumps onto solo boss
+  rg.skills.tesla_chain = 2;
+  rg.lightningIcdTimer = 0;
+  engine._spawnBoss(px, py - 220);
+  engine.boss.unveiled = 6;
+  const hpStart = engine.boss.hp;
+  for (let i = 0; i < 5; i++) {
+    rg.notifyMainShot(px, py - 28, 25, 0, engine.enemies);
+  }
+  assert.ok(engine.boss.hp < hpStart, '5th main shot discharges lightning + single-target focus onto solo boss');
+});
+
+test('player bullet silhouettes evolve with craft and skills in auto mode, and honor manual bulletStyle overrides', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  assert.equal(engine.rig.bulletStyle, 'auto');
+
+  const fireShapes = () => {
+    engine.bullets = [];
+    engine._fireMainGuns(0, 0);
+    return [...engine.bullets.map((b) => b.shape)];
+  };
+
+  // Craft baseline identities
+  assert.deepEqual(fireShapes(), ['laser', 'laser']);
+  engine.updateRig({ shape: 'car' }, false);
+  assert.deepEqual(fireShapes(), ['slug', 'slug']);
+  engine.updateRig({ shape: 'orb' }, false);
+  assert.deepEqual(fireShapes(), ['blade', 'blade']);
+
+  // Skill evolution: split_prism adds prism shards; plasma_pierce evolves shots into piercing lances; barrage into swords
+  engine.updateRig({ shape: 'jet' }, false);
+  engine.roguelite.skills.split_prism = 1;
+  assert.deepEqual(fireShapes(), ['laser', 'laser', 'prism', 'prism']);
+
+  engine.roguelite.skills.plasma_pierce = 1;
+  assert.deepEqual(fireShapes(), ['lance', 'lance', 'prism', 'prism']);
+
+  engine.roguelite.skills.awakening_barrage = 1;
+  assert.deepEqual(fireShapes(), ['sword', 'sword', 'sword', 'sword']);
+
+  // Manual style override & invalid style guard
+  engine.updateRig({ bulletStyle: 'prism' }, false);
+  assert.deepEqual(fireShapes(), ['prism', 'prism', 'prism', 'prism']);
+  engine.updateRig({ bulletStyle: 'nonexistent_style' }, false);
+  assert.equal(engine.rig.bulletStyle, 'prism');
 });

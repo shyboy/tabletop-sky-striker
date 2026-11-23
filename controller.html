@@ -728,6 +728,17 @@
       color: #cbd5e1;
       line-height: 1.38;
     }
+
+    .c-draft-synergy {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #93c5fd;
+      margin-top: 0.1rem;
+    }
+
+    .c-draft-synergy.epic-ready {
+      color: #fde047;
+    }
   </style>
   <link rel="stylesheet" href="./css/flight-deck.css">
   <link rel="stylesheet" href="./css/stations.css">
@@ -867,6 +878,17 @@
       <div class="slider-group">
         <label for="c-anchor"><span>大屏纵向锚点</span><strong id="c-anchor-val">75%</strong></label>
         <input type="range" id="c-anchor" min="52" max="86" value="75">
+      </div>
+
+      <div class="slider-group">
+        <span style="font-size:0.78rem;color:#cbd5e1;">💠 弹幕样式</span>
+        <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0.28rem;">
+          <button type="button" class="mini-btn c-bullet active" data-bullet="auto" style="padding:0.35rem 0.1rem;font-size:0.7rem;">随进化</button>
+          <button type="button" class="mini-btn c-bullet" data-bullet="laser" style="padding:0.35rem 0.1rem;font-size:0.7rem;">脉冲梭</button>
+          <button type="button" class="mini-btn c-bullet" data-bullet="blade" style="padding:0.35rem 0.1rem;font-size:0.7rem;">新月刃</button>
+          <button type="button" class="mini-btn c-bullet" data-bullet="prism" style="padding:0.35rem 0.1rem;font-size:0.7rem;">棱晶针</button>
+          <button type="button" class="mini-btn c-bullet" data-bullet="sword" style="padding:0.35rem 0.1rem;font-size:0.7rem;">御剑弹</button>
+        </div>
       </div>
 
       <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.84rem;">

@@ -598,6 +598,16 @@
     });
   });
 
+  document.querySelectorAll('.c-bullet').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      sfx.unlock();
+      sfx.uiClick();
+      document.querySelectorAll('.c-bullet').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      bridge.send('updateRig', { bulletStyle: btn.dataset.bullet });
+    });
+  });
+
   function syncCalibSliders(st) {
     if (typeof st.width === 'number') {
       cWidth.value = Math.round(st.width);
@@ -613,6 +623,11 @@
       document.getElementById('c-anchor-val').textContent = `${pct}%`;
     }
     if (typeof st.godMode === 'boolean') cGod.checked = st.godMode;
+    if (typeof st.bulletStyle === 'string') {
+      document.querySelectorAll('.c-bullet').forEach((b) => {
+        b.classList.toggle('active', b.dataset.bullet === st.bulletStyle);
+      });
+    }
   }
 
   // Tutorial hints from the big screen: show the phone wording and light up the control to use
@@ -767,13 +782,24 @@
       btn.disabled = !draft.version;
       btn.className = 'c-draft-card';
       btn.style.setProperty('--c-accent', rarityColors[c.rarity] || '#38bdf8');
-      const stars = c.maxStars === 1 ? '★觉醒' : '★'.repeat(c.stars) + '☆'.repeat(Math.max(0, c.maxStars - c.stars));
+      let stars;
+      if (c.maxStars === 1) {
+        stars = '★觉醒';
+      } else if (c.prevStars > 0) {
+        stars = '★'.repeat(c.prevStars) + '→' + '★'.repeat(c.stars);
+      } else {
+        stars = '★'.repeat(c.stars) + '☆'.repeat(Math.max(0, c.maxStars - c.stars));
+      }
+      const hintHtml = c.synergyHint
+        ? `<div class="c-draft-synergy${c.epicReady ? ' epic-ready' : ''}">${c.synergyHint}</div>`
+        : '';
       btn.innerHTML = `
         <div class="c-draft-row">
           <span class="c-draft-name">${c.iconEmoji || '⚡'} ${c.name}</span>
-          <span class="c-draft-badge">${c.category} · ${stars}</span>
+          <span class="c-draft-badge">${c.category || '核心'} · ${stars}</span>
         </div>
-        <div class="c-draft-desc">${c.desc}</div>
+        <div class="c-draft-desc">${c.desc || ''}</div>
+        ${hintHtml}
       `;
       btn.addEventListener('click', () => {
         if (state.skillDraft?.version !== draft.version) return;

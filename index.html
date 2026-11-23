@@ -1193,10 +1193,12 @@
         <span><kbd>F</kbd>顺风</span>
         <span><kbd>Shift</kbd>磁轨</span>
         <span><kbd>K</kbd>核弹</span>
+        <span><kbd>B</kbd>弹幕</span>
         <span><kbd>V</kbd>滤镜</span>
       </div>
       <div class="flight-strip-right">
         <span id="strip-nukes" class="flight-strip-nukes" aria-label="战术核弹数量">☢ 1/3</span>
+        <button type="button" id="btn-strip-bullet" class="strip-btn" aria-pressed="false" title="切换主炮弹幕外观样式 (B)">弹幕：随进化</button>
         <button type="button" id="btn-strip-filter" class="strip-btn" aria-pressed="false" title="切换画面滤镜彩蛋 (V)">滤镜：标准</button>
         <button type="button" id="btn-strip-mute" class="strip-btn" aria-pressed="true" title="开关音效">音效开</button>
         <button type="button" id="btn-strip-pure" class="strip-btn" title="进入实拍纯净模式 (H)">实拍 H</button>
@@ -1239,6 +1241,14 @@
                 <button type="button" class="diff-chip" data-difficulty="easy">轻松</button>
                 <button type="button" class="diff-chip active" data-difficulty="normal">标准</button>
                 <button type="button" class="diff-chip" data-difficulty="ace">王牌</button>
+              </div>
+              <div class="choice-line choice-bullets" role="group" aria-label="选择弹幕样式">
+                <span>弹幕</span>
+                <button type="button" class="bullet-chip active" data-bullet="auto" title="随所选机型与肉鸽技能构筑自动进化形态">随进化</button>
+                <button type="button" class="bullet-chip" data-bullet="laser" title="流线型极光脉冲梭">脉冲梭</button>
+                <button type="button" class="bullet-chip" data-bullet="blade" title="弧光新月风刃弹">新月刃</button>
+                <button type="button" class="bullet-chip" data-bullet="prism" title="折光水晶棱晶针">棱晶针</button>
+                <button type="button" class="bullet-chip" data-bullet="sword" title="仙侠科幻御剑流光弹">御剑弹</button>
               </div>
               <label class="callsign" for="toy-name-input">名字
                 <input type="text" id="toy-name-input" maxlength="8" placeholder="为它起个名字（选填）" autocomplete="off">
@@ -1329,6 +1339,7 @@
           </button>
           <button type="button" id="pc-sky" class="quick-btn">背景：随剧情</button>
           <button type="button" id="pc-dim" class="quick-btn" title="飞行中把背景压暗，让战机和子弹更醒目">背景亮度：标准</button>
+          <button type="button" id="pc-bullet" class="quick-btn" title="切换己方子弹形态：随构筑进化 / 极光脉冲梭 / 新月风刃弹 / 棱晶星芒针 / 苍穹御剑弹（快捷键 B）">💠 弹幕：随构筑进化</button>
           <button type="button" id="pc-filter" class="quick-btn" title="轻量级画面质感彩蛋：标准绘本 / 复古像素 / 暖调胶片（快捷键 V）">🎨 滤镜：标准绘本</button>
           <button type="button" id="pc-mute" class="quick-btn">音效：开</button>
           <button type="button" id="btn-pure-camera" class="quick-btn" title="隐藏全部界面，方便拍视频（H 键恢复）">📷 实拍纯净</button>
@@ -1414,7 +1425,7 @@
 
         <section class="help-sec">
           <h3>⚡ 经验棱晶与三选一核心进化</h3>
-          <p>击落敌机、拆毁水雷、削减 Boss 血量阶段或擦弹都会掉落璀璨的<strong>经验棱晶</strong>（对手机麦克风吹气顺风可<strong>全屏卷吸经验</strong>！）。顶部流光经验条蓄满后战局自动悬停，可从 <strong>3 张随机技能卡</strong>（弹道 / 借风 / 僚机 / 重武 / 机甲五大流派 + 3 张金色传说觉醒卡）中任选一张叠星进化！支持大屏点选、键盘 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>、手柄摇杆，或在<strong>手机座舱屏幕</strong>上直接单手选卡。</p>
+          <p>击落敌机、拆毁水雷、削减 Boss 血量阶段或擦弹都会掉落璀璨的<strong>经验棱晶</strong>（对手机麦克风吹气顺风可<strong>全屏卷吸经验</strong>！）。顶部流光经验条蓄满后战局自动悬停，可从 <strong>3 张构筑技能卡</strong>（弹道 / 借风 / 僚机 / 重武 / 机甲五大流派 + <strong>5 张全流派金色传说觉醒卡</strong>，共 23 张）中任选一张叠星进化！支持大屏点选、键盘 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>、手柄摇杆，或在<strong>手机座舱屏幕</strong>上直接单手选卡。</p>
         </section>
 
         <section class="help-sec">
@@ -1427,6 +1438,7 @@
               <tr><td>⚡ 磁轨炮</td><td>下拉拉栓后松手</td><td>按住右下「磁轨」</td><td>按住 Shift·J / L2</td></tr>
               <tr><td>☢ 核弹</td><td>大圆按钮</td><td>右下「☢」</td><td>K / ○·B</td></tr>
               <tr><td>🌀 翻滚</td><td>后拉手机 / 翻滚键</td><td>左下「翻滚」</td><td>Space / L1·R1</td></tr>
+              <tr><td>💠 弹幕样式</td><td>底座校准内切换</td><td>主界面 / 暂停切换</td><td>B（随进化 / 脉冲梭 / 新月刃 / 棱晶针 / 御剑弹）</td></tr>
               <tr><td>🎨 画面滤镜</td><td>—</td><td>暂停菜单切换</td><td>V（标准 / 像素 / 胶片）</td></tr>
               <tr><td>⏸ 暂停 · 设置</td><td>暂停键</td><td>右上角 ⏸</td><td>P · Esc / Start</td></tr>
             </tbody>
@@ -1715,9 +1727,13 @@
       const FILTER_LABELS = { normal: '标准绘本', pixel: '复古像素', film: '暖调胶片' };
       const FILTER_SHORT = { normal: '标准', pixel: '像素', film: '胶片' };
       const FILTER_ORDER = ['normal', 'pixel', 'film'];
+      const BULLET_LABELS = { auto: '随构筑进化', laser: '极光脉冲梭', blade: '新月风刃弹', prism: '棱晶星芒针', sword: '苍穹御剑弹' };
+      const BULLET_SHORT = { auto: '随进化', laser: '脉冲梭', blade: '新月刃', prism: '棱晶针', sword: '御剑弹' };
+      const BULLET_ORDER = ['auto', 'laser', 'blade', 'prism', 'sword'];
       const flightStrip = document.getElementById('flight-strip');
       const stripChapter = document.getElementById('strip-chapter');
       const stripNukes = document.getElementById('strip-nukes');
+      const btnStripBullet = document.getElementById('btn-strip-bullet');
       const btnStripFilter = document.getElementById('btn-strip-filter');
       const btnStripMute = document.getElementById('btn-strip-mute');
       const btnStripPure = document.getElementById('btn-strip-pure');
@@ -1900,6 +1916,12 @@
           btnStripFilter.textContent = `滤镜：${FILTER_SHORT[filterKey]}`;
           btnStripFilter.setAttribute('aria-pressed', String(filterKey !== 'normal'));
         }
+        const bulletKey = BULLET_LABELS[st.bulletStyle] ? st.bulletStyle : 'auto';
+        document.getElementById('pc-bullet').textContent = `💠 弹幕：${BULLET_LABELS[bulletKey]}`;
+        if (btnStripBullet) {
+          btnStripBullet.textContent = `弹幕：${BULLET_SHORT[bulletKey]}`;
+          btnStripBullet.setAttribute('aria-pressed', String(bulletKey !== 'auto'));
+        }
         if (stripChapter) {
           stripChapter.textContent = st.chapterTitle || '第一航段 · 晴空借风';
         }
@@ -1935,6 +1957,11 @@
           b.classList.toggle('active', on);
           b.setAttribute('aria-pressed', String(on));
         });
+        document.querySelectorAll('[data-bullet]').forEach((b) => {
+          const on = b.dataset.bullet === bulletKey;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', String(on));
+        });
 
         const tabletop = st.mode === 'tabletop';
         titleHelipadTip.textContent = tabletop
@@ -1942,7 +1969,8 @@
           : '战机会自动开火，用方向键、摇杆或拖动来移动。';
         const toy = { jet: '飞机', car: '小车', orb: '瓶盖' }[st.shape] || '飞机';
         const difficulty = { easy: '轻松', normal: '标准', ace: '王牌' }[st.difficulty] || '标准';
-        document.getElementById('flight-option-summary').textContent = `${toy} · ${difficulty}`;
+        const bulletSuffix = bulletKey !== 'auto' ? ` · ${BULLET_SHORT[bulletKey]}` : '';
+        document.getElementById('flight-option-summary').textContent = `${toy} · ${difficulty}${bulletSuffix}`;
         titleOverlay.style.setProperty('--pad-top', tabletop
           ? `calc(${st.anchorY * 100}dvh - ${st.length / 2 + 46}px)`
           : 'calc(75dvh - 72px)');
@@ -2129,6 +2157,9 @@
             engine.triggerBarrelRoll();
           } else if (type === 'updateRig') {
             engine.updateRig(payload || {}, true);
+            if (payload && payload.bulletStyle && BULLET_LABELS[payload.bulletStyle]) {
+              try { localStorage.setItem('skyStriker.bulletStyle', payload.bulletStyle); } catch (e) { /* ignore */ }
+            }
           } else if (type === 'calibFocus') {
             engine.setSetupPause(Boolean(payload && payload.open), 'controller');
           } else if (type === 'startMission' || type === 'restart') {
@@ -2504,12 +2535,9 @@
         });
       }
 
-      const showFilterToast = (filterKey) => {
+      const showStatusToast = (text) => {
         if (!filterToast) return;
-        const desc = filterKey === 'pixel'
-          ? '复古像素 · 4×4 抖动彩蛋'
-          : (filterKey === 'film' ? '暖调胶片 · 35mm 航拍质感' : '标准绘本 · 原生高清');
-        filterToast.textContent = `🎨 画面滤镜：${desc}`;
+        filterToast.textContent = text;
         filterToast.hidden = false;
         filterToast.classList.add('show');
         if (filterToastTimer && typeof clearTimeout === 'function') clearTimeout(filterToastTimer);
@@ -2521,6 +2549,28 @@
         }
       };
 
+      const showFilterToast = (filterKey) => {
+        const desc = filterKey === 'pixel'
+          ? '复古像素 · 4×4 抖动彩蛋'
+          : (filterKey === 'film' ? '暖调胶片 · 35mm 航拍质感' : '标准绘本 · 原生高清');
+        showStatusToast(`🎨 画面滤镜：${desc}`);
+      };
+
+      const setBulletStyle = (next, announce = true) => {
+        if (!BULLET_LABELS[next]) return;
+        sfx.unlock();
+        sfx.uiClick();
+        engine.updateRig({ bulletStyle: next }, false);
+        try { localStorage.setItem('skyStriker.bulletStyle', next); } catch (e) { /* ignore */ }
+        if (announce) showStatusToast(`💠 弹幕样式：${BULLET_LABELS[next]}`);
+      };
+
+      const cycleBulletStyle = (announce = true) => {
+        const cur = engine.rig.bulletStyle || 'auto';
+        const next = BULLET_ORDER[(BULLET_ORDER.indexOf(cur) + 1) % BULLET_ORDER.length];
+        setBulletStyle(next, announce);
+      };
+
       const cycleVisualFilter = (announce = true) => {
         sfx.unlock();
         sfx.uiClick();
@@ -2530,6 +2580,16 @@
         try { localStorage.setItem('skyStriker.visualFilter', next); } catch (e) { /* ignore */ }
         if (announce) showFilterToast(next);
       };
+
+      document.getElementById('pc-bullet').addEventListener('click', () => cycleBulletStyle(true));
+      if (btnStripBullet) btnStripBullet.addEventListener('click', () => cycleBulletStyle(true));
+      document.querySelectorAll('[data-bullet]').forEach((btn) => {
+        btn.addEventListener('click', () => setBulletStyle(btn.dataset.bullet, true));
+      });
+      try {
+        const savedBullet = localStorage.getItem('skyStriker.bulletStyle');
+        if (savedBullet && BULLET_LABELS[savedBullet]) engine.updateRig({ bulletStyle: savedBullet }, false);
+      } catch (e) { /* storage blocked */ }
 
       document.getElementById('pc-filter').addEventListener('click', () => cycleVisualFilter(true));
       if (btnStripFilter) btnStripFilter.addEventListener('click', () => cycleVisualFilter(true));
@@ -2727,6 +2787,8 @@
             engine.updateRig({ mode: engine.rig.mode === 'tabletop' ? 'arcade' : 'tabletop' }, true);
           } else if (ev.code === 'KeyV') {
             cycleVisualFilter(true);
+          } else if (ev.code === 'KeyB') {
+            cycleBulletStyle(true);
           }
           return;
         }
@@ -2760,6 +2822,8 @@
             engine.finishVoyage();
           } else if (ev.code === 'KeyV') {
             cycleVisualFilter(true);
+          } else if (ev.code === 'KeyB') {
+            cycleBulletStyle(true);
           }
           return;
         }
@@ -2779,6 +2843,8 @@
           engine.updateRig({ pureCamera: !engine.rig.pureCamera }, false);
         } else if (ev.code === 'KeyV') {
           cycleVisualFilter(true);
+        } else if (ev.code === 'KeyB') {
+          cycleBulletStyle(true);
         }
       });
 

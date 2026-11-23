@@ -12,6 +12,8 @@
   const lerp = (a, b, t) => a + (b - a) * t;
   const TABLETOP_CRUISE_SPEED = 310;
   const TABLETOP_FULL_SPEED = 880;
+  const ARCADE_FORWARD_SPEED = 760;
+  const TABLETOP_PICKUP_SURGE_SCALE = ARCADE_FORWARD_SPEED / (TABLETOP_FULL_SPEED - TABLETOP_CRUISE_SPEED);
   const FORWARD_RESPONSE = 32;
   const MAX_FRAME_SECONDS = 0.1;
   const MAX_STEP_SECONDS = 0.02;
@@ -149,6 +151,13 @@
     pixel: { label: '复古像素' },
     film: { label: '暖调胶片' }
   });
+  const BULLET_STYLES = Object.freeze({
+    auto: { label: '随构筑进化', short: '随进化' },
+    laser: { label: '极光脉冲梭', short: '脉冲梭' },
+    blade: { label: '新月风刃弹', short: '新月刃' },
+    prism: { label: '棱晶星芒针', short: '棱晶针' },
+    sword: { label: '苍穹御剑弹', short: '御剑弹' }
+  });
   // Main guns fire 1.45x less often with 1.45x damage: same firepower, far fewer bars filling the screen
   const SHOT_THIN = 1.45;
   const BG_CALM_TITLE = { veil: 0, cloud: 1, sun: 1, lines: 1 };
@@ -172,11 +181,11 @@
       desc: '速度快、射速高、判定小，但机体较薄；翻滚冷却更短'
     },
     car: {
-      label: '坦克型', icon: '🚗', maxHp: 140, lateral: 0.85, fireRate: 1.12, dmg: 1.35, core: 13, rollCd: 2.2, gustCd: 1, bumper: true,
+      label: '坦克型', icon: '🚗', maxHp: 140, lateral: 0.85, fireRate: 1.16, dmg: 1.32, core: 13, rollCd: 2.2, gustCd: 1, bumper: true,
       desc: '机体厚、子弹重；撞上小型敌机会直接把它撞飞'
     },
     orb: {
-      label: '守护型', icon: '🧿', maxHp: 100, lateral: 1, fireRate: 1, dmg: 1, core: 11, rollCd: 2.2, gustCd: 0.75, satellite: true,
+      label: '守护型', icon: '🧿', maxHp: 105, lateral: 1.02, fireRate: 0.94, dmg: 1.04, core: 11, rollCd: 2.0, gustCd: 0.75, satellite: true,
       desc: '自带环绕护卫球拦截子弹，顺风充能更快'
     }
   };
@@ -257,7 +266,8 @@
         hitSize: 'normal',    // bullet hit-core size: 'small' | 'normal' | 'large'
         toyName: '',          // the kid's name for the toy, shown on banners and the keepsake card
         bgDim: 'normal',      // how far the scenery is pushed back in flight: 'normal' | 'dark' | 'max'
-        visualFilter: 'normal' // lightweight optional screen filter easter egg: 'normal' | 'pixel' | 'film'
+        visualFilter: 'normal', // lightweight optional screen filter easter egg: 'normal' | 'pixel' | 'film'
+        bulletStyle: 'auto'   // player shot visual style: 'auto' (evolves with craft & skills) | 'laser' | 'blade' | 'prism' | 'sword'
       };
 
       this._pixelBuffer = null;
@@ -301,8 +311,10 @@
           const p = this.player;
           const px = this._playerWorldX();
           const py = this._playerWorldY();
+          const mods = this._mods();
+          const maxShields = mods.maxShields || 2;
           if (choice.id === '_auto_shield') {
-            if (p.shield < 2 && this.phase === 'playing') {
+            if (p.shield < maxShields && this.phase === 'playing') {
               p.shield++;
               this._sfx('shieldUp');
               this.floatingTexts.push({ x: px, y: py - 54, text: '🔷 相位护盾充能完成', color: '#67e8f9', life: 1.1 });
@@ -310,15 +322,27 @@
             }
             return;
           }
+          if (choice.id === '_core_overclock') {
+            p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.35);
+            if (p.shield < maxShields) p.shield++;
+            this._sfx('shieldUp');
+            this.floatingTexts.push({ x: px, y: py - 68, text: `⚡ ${choice.name} · 护盾与耐久补给`, color: '#fde047', life: 1.4, big: true });
+            this._stateDirty = true;
+            return;
+          }
           this._applyToyTraits(false);
           if (choice.id === 'nano_hull') {
-            p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.35));
+            p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3);
           } else if (choice.id === 'phase_aegis') {
-            p.shield = Math.min(2, p.shield + 1);
+            p.shield = Math.min(maxShields, p.shield + 1);
+            this._sfx('shieldUp');
+          } else if (choice.id === 'awakening_aegis') {
+            p.shield = Math.min(maxShields, p.shield + 2);
             this._sfx('shieldUp');
           } else if (choice.id === 'drone_swarm') {
-            const mods = this._mods();
             p.droneCount = Math.min(mods.maxDrones, p.droneCount + 1);
+          } else if (choice.id === 'awakening_hive') {
+            p.droneCount = Math.min(mods.maxDrones, p.droneCount + 2);
           } else if (choice.id === 'tactical_arsenal') {
             p.nukes = Math.min(p.maxNukes + 1, p.nukes + 1);
           }
@@ -376,14 +400,25 @@
     _mods() {
       if (this.roguelite) return this.roguelite.getModifiers();
       return {
-        evoTier: 0, splitShots: 0, pierceCount: 0, fireRateMult: 1, damageMult: 1,
+        evoTier: 0, globalDmgMult: 1, splitShots: 0, pierceCount: 0, fireRateMult: 1, damageMult: 1,
         critChance: 0, critMult: 1, pickupRadiusMult: 1, xpMult: 1,
-        lungCapMult: 1, lungRegenMult: 1, gustCdMult: 1, windReflectMult: 1.8, windReflectHoming: false,
-        maxDrones: 4, droneDamageMult: 1, hasLightning: false,
-        railChargeMult: 1, railPerfectWindowMult: 1, railAwakened: false, railDamageMult: 1,
-        maxHpBonus: 0, hullRegenPerSec: 0, autoShieldInterval: 0,
+        lungCapMult: 1, lungRegenMult: 1, gustCdMult: 1, windReflectMult: 1.8, windReflectHoming: false, breezeReflectChance: 0,
+        maxDrones: 4, droneDamageMult: 1, hiveAwakened: false, hasLightning: false,
+        railChargeMult: 1, railPerfectWindowMult: 1, railAwakened: false, railPerfectCdRefund: 0, railDamageMult: 1,
+        maxHpBonus: 0, hullRegenPerSec: 0, maxShields: 2, aegisAwakened: false, autoShieldInterval: 0,
         grazeRadiusMult: 1, grazeGustReduce: 0, grazeXp: 0, tempestAura: false
       };
+    }
+
+    _skillPowerScale() {
+      const mods = this._mods();
+      const wLv = this.player ? clamp(this.player.weaponLv || 1, 1, MAX_WEAPON_LV) : 1;
+      return (1 + (wLv - 1) * 0.12) * this.traits.dmg * (mods.globalDmgMult || 1);
+    }
+
+    _xpDropScale() {
+      if (this.wave <= 1) return 1;
+      return 1 + (this.wave - 1) * 0.25;
     }
 
     isSkillDraftOpen() {
@@ -681,6 +716,7 @@
       if (typeof patch.toyName === 'string') this.rig.toyName = patch.toyName.trim().slice(0, 8);
       if (patch.bgDim && BG_CALM[patch.bgDim]) this.rig.bgDim = patch.bgDim;
       if (patch.visualFilter && VISUAL_FILTERS[patch.visualFilter]) this.rig.visualFilter = patch.visualFilter;
+      if (patch.bulletStyle && BULLET_STYLES[patch.bulletStyle]) this.rig.bulletStyle = patch.bulletStyle;
       // A new toy type before take-off changes the hull right away (mid-flight it keeps the current HP ratio)
       if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
@@ -873,7 +909,8 @@
       const say = (text, color) => this.floatingTexts.push({ x: px, y: py - 78, text, color, life: 1.4, big: true });
 
       if (action === 'shield') {
-        if (p.shield >= 2) return false;
+        const maxShields = this._mods().maxShields || 2;
+        if (p.shield >= maxShields) return false;
         p.shield++;
         this._sfx('shieldUp');
         say('🛡 地勤投放护盾！', '#67e8f9');
@@ -971,11 +1008,12 @@
         this.floatingTexts.push({ x: px, y: py - 110, text: mods.railAwakened ? '🌟 阳电子破城完美释放！' : '⚡ 完美蓄力！', color: '#a5f3fc', life: 1.1, big: true });
       }
       if (this.roguelite) {
+        this.roguelite.powerScale = this._skillPowerScale();
         const muzzleY = py - (this.rig.mode === 'tabletop' ? this.rig.length * 0.5 : 28);
         const beamW = (16 + clampedPower * 28) * (mods.railAwakened ? 1.35 : 1);
         this.roguelite.notifyRailgun(px, muzzleY, beamW, clampedPower, this.enemies, this.height * 1.15);
       }
-      p.railCooldown = 1.6;
+      p.railCooldown = 1.6 * (perfect ? (1 - (mods.railPerfectCdRefund || 0)) : 1);
       if (this.tutorial) this.tutorial.railed = true;
       this.remoteInput.railCharge = 0;
       this.localRailCharge = 0;
@@ -1102,6 +1140,7 @@
         pwp.magnet = true;
       }
       if (this.roguelite) {
+        this.roguelite.powerScale = this._skillPowerScale();
         const worldVyOffset = this.rig.mode === 'tabletop' ? -p.cruiseSpeed : 0;
         this.roguelite.notifyGust(cx, cy, pw, worldVyOffset);
       }
@@ -1121,6 +1160,7 @@
       const cy = this._playerWorldY();
       this.shockwaves.push({ x: cx, y: cy, r: 16, maxR: 155, color: '#a5f3fc', life: 0.38, maxLife: 0.38, width: 6 });
       if (this.roguelite) {
+        this.roguelite.powerScale = this._skillPowerScale();
         this.roguelite.notifyBarrelRoll(cx, cy, this.enemies, this.enemyBullets);
       }
 
@@ -1462,10 +1502,22 @@
         if (inp.micBreath > 0.26) p.gustCooldown = Math.max(0, p.gustCooldown - dt * b * 1.2);
         const bx = this._playerWorldX();
         const by = this._playerWorldY();
+        const breezeReflect = mods.breezeReflectChance || 0;
         for (const eb of this.enemyBullets) {
           if (eb.reflected) continue;
           const d = Math.hypot(eb.x - bx, eb.y - by);
-          if (d < 320) eb.vy -= 520 * b * dt * (1 - d / 320); // headwind for enemy shots near the craft
+          if (d < 320) {
+            eb.vy -= 520 * b * dt * (1 - d / 320); // headwind for enemy shots near the craft
+            if (breezeReflect > 0 && d < 185 && !eb.breezeTested) {
+              eb.breezeTested = true;
+              if (Math.random() < breezeReflect * clamp(b * 1.4, 0.5, 1)) {
+                eb.vy = -580 - b * 240;
+                eb.vx = (eb.x - bx) * 1.5;
+                eb.reflected = true;
+                eb.color = '#67e8f9';
+              }
+            }
+          }
         }
         for (const pwp of this.powerups) {
           if (Math.hypot(pwp.x - bx, pwp.y - by) < 190 + 260 * b) pwp.magnet = true;
@@ -1533,7 +1585,7 @@
         p.cameraRoll = 0;
         p.cruiseSpeed = 280;
         p.vx = lerp(p.vx, inp.vx * 520 * this.traits.lateral, 1 - Math.exp(-dt * 14));
-        const targetVy = inp.vy * (inp.vy < 0 ? 760 : 480);
+        const targetVy = inp.vy * (inp.vy < 0 ? ARCADE_FORWARD_SPEED : 480);
         const response = inp.vy < 0 || p.vy < 0 ? FORWARD_RESPONSE : 14;
         const priorVy = p.vy;
         p.vy = lerp(p.vy, targetVy, 1 - Math.exp(-dt * response));
@@ -1554,7 +1606,8 @@
       p.fireCooldown -= dt;
       if (inp.firing && inp.railCharge < 0.2 && p.railBeamTimer <= 0 && p.fireCooldown <= 0) {
         this._fireMainGuns(px, py);
-        p.fireCooldown = ((p.weaponLv >= 4 ? (p.weaponLv >= 5 ? 0.088 : 0.095) : 0.115) * this.traits.fireRate * SHOT_THIN) / mods.fireRateMult;
+        const baseGap = [0.115, 0.115, 0.111, 0.104, 0.096, 0.088][clamp(p.weaponLv, 1, 5)];
+        p.fireCooldown = (baseGap * this.traits.fireRate * SHOT_THIN) / mods.fireRateMult;
       }
 
       // Flanking Bit-Drones Auto Fire
@@ -1605,16 +1658,34 @@
       this._stepHazards(dt, px, py);
       this._stepPlayerBullets(dt, px, py);
       this._stepEnemies(dt, px, py);
+      const isTabletop = this.rig.mode === 'tabletop';
+      const stepCamSpeed = isTabletop ? (dt > 0 ? (startY - py) / dt : p.cruiseSpeed) : 0;
+      const playerWorldVy = isTabletop ? -stepCamSpeed : 0;
+      const forwardSurge = isTabletop ? Math.max(0, stepCamSpeed - TABLETOP_CRUISE_SPEED) : 0;
+      const pickupSurgeVy = forwardSurge * TABLETOP_PICKUP_SURGE_SCALE;
+      const surgeRatio = isTabletop ? clamp(forwardSurge / (TABLETOP_FULL_SPEED - TABLETOP_CRUISE_SPEED), 0, 1) : 0;
+      const rigPad = isTabletop ? Math.max(0, Math.max(this.rig.width, this.rig.length) * 0.5 - 30) : 0;
+
       this._stepEnemyBullets(dt, px, py, startX, startY);
-      this._stepStarRoute(dt, px, py);
-      this._stepPowerups(dt, px, py);
+      this._stepStarRoute(dt, px, py, startX, startY, playerWorldVy, pickupSurgeVy);
+      this._stepPowerups(dt, px, py, startX, startY, playerWorldVy, pickupSurgeVy, surgeRatio, rigPad);
       if (this.roguelite) {
         this.roguelite.step(dt, {
           playerX: px,
           playerY: py,
+          startX,
+          startY,
           W: this.width,
           H: this.height,
-          worldVyOffset: this.rig.mode === 'tabletop' ? -p.cruiseSpeed : 0,
+          worldVyOffset: playerWorldVy,
+          pickupSurgeVy,
+          surgeRatio,
+          collectRadius: isTabletop ? Math.max(36, Math.max(this.rig.width, this.rig.length) * 0.54) : 30,
+          magnetBonus: rigPad,
+          starMagnet: this.starMagnet > 0,
+          powerScale: this._skillPowerScale(),
+          droneCount: p.droneCount,
+          shieldCount: p.shield,
           breath: this.breath,
           gustActive: p.gustTimer > 0,
           tutorial: Boolean(this.tutorial),
@@ -1659,21 +1730,76 @@
       return slots.slice(0, clamp(this.player.droneCount, 0, mods.maxDrones || 4));
     }
 
+    // Resolve shot silhouette & cool-spectrum tint from manual style or dynamic craft + skill build evolution
+    _resolveBulletVisual(slotRole, baseTint, mods, isCrit, isTeslaCharged) {
+      const SHOT = { '#0369a1': '#38bdf8', '#ea580c': '#7dd3fc', '#dc2626': '#e0f2fe' };
+      const sk = (this.roguelite && this.roguelite.skills) || {};
+      const manual = this.rig.bulletStyle && this.rig.bulletStyle !== 'auto' ? this.rig.bulletStyle : null;
+
+      if (manual) {
+        const color = isCrit
+          ? '#fde047'
+          : (isTeslaCharged ? '#c4b5fd' : (mods.pierceCount > 0 && slotRole === 'core' ? '#a5b4fc' : (SHOT[baseTint] || '#38bdf8')));
+        return { shape: manual, color };
+      }
+
+      if (isCrit) {
+        return { shape: sk.awakening_barrage ? 'sword' : 'star', color: '#fde047' };
+      }
+      if (sk.awakening_barrage) {
+        return { shape: 'sword', color: slotRole === 'core' ? '#fef08a' : '#7dd3fc' };
+      }
+      if (sk.awakening_tempest) {
+        return { shape: 'blade', color: slotRole === 'core' ? '#99f6e4' : '#2dd4bf' };
+      }
+      if (sk.awakening_rail && slotRole === 'core') {
+        return { shape: 'lance', color: '#a5f3fc' };
+      }
+      if (slotRole === 'split') {
+        return { shape: 'prism', color: mods.pierceCount > 0 ? '#a5b4fc' : '#38bdf8' };
+      }
+      if (mods.pierceCount > 0) {
+        return { shape: 'lance', color: slotRole === 'core' ? '#c7d2fe' : '#818cf8' };
+      }
+      if (isTeslaCharged) {
+        return { shape: 'prism', color: '#c4b5fd' };
+      }
+      if (sk.awakening_aegis && this.player.shield > 0 && slotRole === 'core') {
+        return { shape: 'prism', color: '#67e8f9' };
+      }
+      if ((sk.wind_blades || 0) > 0 && slotRole === 'wing') {
+        return { shape: 'blade', color: '#5eead4' };
+      }
+
+      // Baseline craft identity: agile jet = supersonic laser, tank car = heavy slug, guardian orb = crescent pulse
+      if (this.rig.shape === 'car') {
+        return { shape: 'slug', color: slotRole === 'core' ? '#bae6fd' : '#7dd3fc' };
+      }
+      if (this.rig.shape === 'orb') {
+        return { shape: 'blade', color: slotRole === 'core' ? '#a5f3fc' : '#67e8f9' };
+      }
+      return { shape: 'laser', color: SHOT[baseTint] || '#38bdf8' };
+    }
+
     _fireMainGuns(px, py) {
       const my = py + this._muzzleOffsetY();
       const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
       const baseVy = worldVyOffset - 920;
       const lv = this.player.weaponLv;
       const mods = this._mods();
+      const isTeslaCharged = Boolean(
+        this.roguelite && (this.roguelite.skills.tesla_chain || 0) > 0 && (this.roguelite.teslaShotCounter + 1) >= 5
+      );
 
       this.sfx.laser(lv);
 
-      // Player palette stays cool (cyan / ice / white) unless landing a golden Crit!
-      const SHOT = { '#0369a1': '#38bdf8', '#ea580c': '#7dd3fc', '#dc2626': '#e0f2fe' };
-      const addShot = (ox, vx, dmg, color = '#0369a1', w = 4.5, h = 19) => {
+      // Player palette stays cool (cyan / ice / teal / indigo) unless landing a golden Crit / Barrage!
+      const addShot = (ox, vx, dmg, color = '#0369a1', w = 4.5, h = 19, slotRole = 'wing') => {
         const heavy = this.traits.dmg;
         const isCrit = mods.critChance > 0 && Math.random() < mods.critChance;
         const finalDmg = dmg * heavy * SHOT_THIN * mods.damageMult * (isCrit ? mods.critMult : 1);
+        const vis = this._resolveBulletVisual(slotRole, color, mods, isCrit, isTeslaCharged);
+        const pierceStretch = mods.pierceCount > 0 ? 1 + mods.pierceCount * 0.08 : 1;
         this.bullets.push({
           x: px + ox,
           y: my,
@@ -1683,60 +1809,64 @@
           crit: isCrit,
           pierceLeft: mods.pierceCount || 0,
           hitSet: mods.pierceCount > 0 ? new Set() : null,
-          color: isCrit ? '#fde047' : (SHOT[color] || '#38bdf8'),
-          w: (heavy > 1 ? w * 1.3 : w) * (isCrit ? 1.25 : 1),
-          h: isCrit ? h * 1.18 : h,
+          shape: vis.shape,
+          color: vis.color,
+          w: (heavy > 1.1 ? w * 1.28 : w) * (isCrit ? 1.25 : 1),
+          h: h * pierceStretch * (isCrit ? 1.18 : 1),
           life: 1.35
         });
       };
 
       const spreadBase = this.rig.mode === 'tabletop' ? Math.min(26, this.rig.width * 0.24) : 11;
       if (lv === 1) {
-        addShot(-spreadBase, 0, 14, '#0369a1');
-        addShot(spreadBase, 0, 14, '#0369a1');
+        addShot(-spreadBase, 0, 14, '#0369a1', 4.5, 19, 'core');
+        addShot(spreadBase, 0, 14, '#0369a1', 4.5, 19, 'core');
       } else if (lv === 2) {
-        addShot(0, 0, 16, '#ea580c', 5, 22);
-        addShot(-spreadBase * 1.25, -75, 12, '#0369a1');
-        addShot(spreadBase * 1.25, 75, 12, '#0369a1');
+        addShot(0, 0, 17, '#ea580c', 5, 22, 'core');
+        addShot(-spreadBase * 1.18, -62, 12.5, '#0369a1', 4.5, 19, 'wing');
+        addShot(spreadBase * 1.18, 62, 12.5, '#0369a1', 4.5, 19, 'wing');
       } else if (lv === 3) {
-        addShot(-spreadBase * 0.65, 0, 15, '#ea580c', 5, 22);
-        addShot(spreadBase * 0.65, 0, 15, '#ea580c', 5, 22);
-        addShot(-spreadBase * 1.5, -145, 12, '#0369a1');
-        addShot(spreadBase * 1.5, 145, 12, '#0369a1');
+        addShot(-spreadBase * 0.62, 0, 16.5, '#ea580c', 5, 22, 'core');
+        addShot(spreadBase * 0.62, 0, 16.5, '#ea580c', 5, 22, 'core');
+        addShot(-spreadBase * 1.38, -115, 13, '#0369a1', 4.5, 19, 'wing');
+        addShot(spreadBase * 1.38, 115, 13, '#0369a1', 4.5, 19, 'wing');
       } else if (lv === 4) {
-        addShot(0, 0, 20, '#dc2626', 6, 24);
-        addShot(-spreadBase, -65, 15, '#ea580c', 5, 20);
-        addShot(spreadBase, 65, 15, '#ea580c', 5, 20);
-        addShot(-spreadBase * 1.7, -195, 13, '#0369a1');
-        addShot(spreadBase * 1.7, 195, 13, '#0369a1');
+        addShot(0, 0, 21, '#dc2626', 6, 24, 'core');
+        addShot(-spreadBase * 0.95, -58, 15.5, '#ea580c', 5, 20, 'core');
+        addShot(spreadBase * 0.95, 58, 15.5, '#ea580c', 5, 20, 'core');
+        addShot(-spreadBase * 1.6, -165, 13, '#0369a1', 4.5, 19, 'wing');
+        addShot(spreadBase * 1.6, 165, 13, '#0369a1', 4.5, 19, 'wing');
       } else {
-        // Lv5 (endless route): twin heavy cores + wide fan
-        addShot(-spreadBase * 0.45, 0, 21, '#dc2626', 6, 26);
-        addShot(spreadBase * 0.45, 0, 21, '#dc2626', 6, 26);
-        addShot(-spreadBase * 1.1, -70, 16, '#ea580c', 5, 21);
-        addShot(spreadBase * 1.1, 70, 16, '#ea580c', 5, 21);
-        addShot(-spreadBase * 1.8, -190, 14, '#0369a1');
-        addShot(spreadBase * 1.8, 190, 14, '#0369a1');
-        addShot(-spreadBase * 2.2, -300, 12, '#0369a1');
-        addShot(spreadBase * 2.2, 300, 12, '#0369a1');
+        // Lv5 (endless route): twin heavy cores + focused triple fan
+        addShot(-spreadBase * 0.45, 0, 21, '#dc2626', 6, 26, 'core');
+        addShot(spreadBase * 0.45, 0, 21, '#dc2626', 6, 26, 'core');
+        addShot(-spreadBase * 1.05, -65, 16, '#ea580c', 5, 21, 'core');
+        addShot(spreadBase * 1.05, 65, 16, '#ea580c', 5, 21, 'core');
+        addShot(-spreadBase * 1.68, -175, 14, '#0369a1', 4.5, 19, 'wing');
+        addShot(spreadBase * 1.68, 175, 14, '#0369a1', 4.5, 19, 'wing');
+        addShot(-spreadBase * 2.05, -265, 12, '#0369a1', 4.5, 18, 'wing');
+        addShot(spreadBase * 2.05, 265, 12, '#0369a1', 4.5, 18, 'wing');
       }
 
-      // Roguelite Split-Prism extra diagonal volleys + Sword Barrage counter
+      // Roguelite Split-Prism extra diagonal volleys + Sword Barrage / Tesla counter
       if (mods.splitShots > 0) {
+        const splitDmg = 10.2 + lv * 0.8;
         for (let s = 1; s <= mods.splitShots; s++) {
-          const svx = 135 * s;
-          addShot(-spreadBase * 0.8, -svx, 11, '#0369a1', 4, 17);
-          addShot(spreadBase * 0.8, svx, 11, '#0369a1', 4, 17);
+          const svx = 105 * s;
+          addShot(-spreadBase * 0.78, -svx, splitDmg, '#0369a1', 4.2, 17.5, 'split');
+          addShot(spreadBase * 0.78, svx, splitDmg, '#0369a1', 4.2, 17.5, 'split');
         }
       }
       if (this.roguelite) {
-        this.roguelite.notifyMainShot(px, my, 16 * this.traits.dmg, worldVyOffset);
+        this.roguelite.powerScale = this._skillPowerScale();
+        this.roguelite.notifyMainShot(px, my, (15 + lv * 1.6) * this.traits.dmg * (mods.globalDmgMult || 1), worldVyOffset, this.enemies);
       }
     }
 
     _fireDroneGuns(px, py) {
       const baseVy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) - 780;
       const mods = this._mods();
+      const droneDmg = (16 + (this.player.weaponLv - 1) * 1.5) * mods.droneDamageMult;
 
       let target = null;
       let bestDist = 680;
@@ -1748,7 +1878,8 @@
         }
       }
 
-      for (const slot of this._droneSlots()) {
+      const slots = this._droneSlots();
+      for (const slot of slots) {
         const dir = slot.x < 0 ? -1 : 1;
         const dx = px + slot.x - this.player.bank * 10;
         const dy = py + slot.y;
@@ -1761,7 +1892,17 @@
           vx = (aimX / len) * 780;
           vy = (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0) + (aimY / len) * 780;
         }
-        this.bullets.push({ x: dx, y: dy - 12, vx, vy, dmg: 16 * mods.droneDamageMult, color: '#4ade80', w: 3.5, h: 13, life: 1.2, drone: true });
+        this.bullets.push({
+          x: dx, y: dy - 12, vx, vy, dmg: droneDmg,
+          shape: mods.hiveAwakened ? 'lance' : 'drone',
+          color: mods.hiveAwakened ? '#fde047' : '#4ade80',
+          w: mods.hiveAwakened ? 4.4 : 3.8, h: mods.hiveAwakened ? 16 : 13.5,
+          life: 1.2, drone: true
+        });
+      }
+      if (slots.length > 0 && this.roguelite) {
+        this.roguelite.powerScale = this._skillPowerScale();
+        this.roguelite.notifyDroneVolley(px, py, this.enemies, droneDmg);
       }
     }
 
@@ -1791,10 +1932,18 @@
       const p = this.player;
       const t = this.traits;
       const mods = this._mods();
-      const ratio = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+      const prevMax = p.maxHp > 0 ? p.maxHp : t.maxHp;
       const bonus = this.phase === 'playing' ? ((this.hullBonus || 0) + (mods.maxHpBonus || 0)) : 0;
-      p.maxHp = t.maxHp + bonus;
-      p.hp = refill ? p.maxHp : Math.max(1, Math.round(p.maxHp * ratio));
+      const nextMax = t.maxHp + bonus;
+      p.maxHp = nextMax;
+      if (refill) {
+        p.hp = nextMax;
+      } else if (nextMax !== prevMax) {
+        const ratio = clamp(p.hp / prevMax, 0, 1);
+        p.hp = clamp(nextMax * ratio, p.hp > 0 ? 1 : 0, nextMax);
+      } else {
+        p.hp = Math.min(nextMax, p.hp);
+      }
       p.gustMaxCooldown = 6 * t.gustCd * (mods.gustCdMult || 1);
     }
 
@@ -1975,7 +2124,8 @@
       const ch = this.getCurrentChapter();
       const kind = BOSS_ORDER[ch.idx];
       const def = BOSS_DEFS[kind];
-      const hp = Math.round((ch.loop === 0 ? BOSS_HP[ch.idx] : BOSS_HP[ch.idx] * 1.3) * (1 + this.loopIndex * 0.35));
+      const endlessBase = Math.max(BOSS_HP[ch.idx] * 1.3, 6000 + ch.idx * 900);
+      const hp = Math.round((ch.loop === 0 ? BOSS_HP[ch.idx] : endlessBase) * (1 + this.loopIndex * 0.36));
       const boss = {
         type: 'boss',
         bossKind: kind,
@@ -2062,9 +2212,10 @@
 
       // Boss phase XP fountain: every 20% HP lost showers XP gems so player levels up mid-boss too!
       if (e.isBoss && this.roguelite) {
+        const xpScale = this._xpDropScale();
         for (const threshold of BOSS_XP_THRESHOLDS) {
           if (prevHpRatio > threshold && e.hp <= e.maxHp * threshold) {
-            this.roguelite.spawnXpBurst(e.x, e.y + 24, 34, 7);
+            this.roguelite.spawnXpBurst(e.x, e.y + 24, Math.round(34 * xpScale), 7);
           }
         }
       }
@@ -2109,17 +2260,18 @@
         }
       }
 
+      const xpScale = this._xpDropScale();
       if (e.isBoss) {
-        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, 'boss', true);
+        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, 'boss', true, xpScale);
         this._onBossDefeated(e);
       } else if (e.type === 'mine') {
-        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, 'mine', false);
+        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, 'mine', false, xpScale);
         // Shot mines pop harmlessly (only proximity detonation throws shrapnel)
         this.sfx.enemyBoom(false);
         this._spawnExplosion(e.x, e.y, '#fca5a5', 10, 160);
         this.shockwaves.push({ x: e.x, y: e.y, r: 6, maxR: 70, color: '#fda4af', life: 0.3, maxLife: 0.3, width: 4 });
       } else {
-        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, e.type, false);
+        if (this.roguelite && !this._nuking) this.roguelite.spawnXpFromKill(e.x, e.y, e.fromHangar ? 'escort' : e.type, false, xpScale);
         const big = e.type === 'gunship' || e.type === 'bomber' || e.type === 'sentinel';
         this.sfx.enemyBoom(false);
         const color = e.type === 'scout' || e.type === 'weaver' ? '#38bdf8' : '#fb923c';
@@ -2223,12 +2375,13 @@
     // Clearing a blockade makes the craft permanently stronger for the rest of the voyage
     _chapterUpgrade() {
       const p = this.player;
+      const mods = this._mods();
       const parts = [];
       this.hullBonus = (this.hullBonus || 0) + 15;
-      p.maxHp += 15;
+      p.maxHp = this.traits.maxHp + this.hullBonus + (mods.maxHpBonus || 0);
       p.hp = Math.min(p.maxHp, p.hp + 15 + p.maxHp * 0.35);
       parts.push('机体上限 +15');
-      if (p.droneCount < 4) {
+      if (p.droneCount < (mods.maxDrones || 4)) {
         p.droneCount++;
         parts.push(`僚机 ×${p.droneCount}`);
       }
@@ -2492,7 +2645,7 @@
       }
     }
 
-    _stepStarRoute(dt, px, py) {
+    _stepStarRoute(dt, px, py, startX = px, startY = py, playerWorldVy = null, pickupSurgeVy = 0) {
       if (this.phase !== 'playing') return;
       this.starMagnet = Math.max(0, this.starMagnet - dt);
       if (this.tutorial || this.boss || this.victoryHoldTimer > 0) return;
@@ -2509,16 +2662,29 @@
           x: px + direction * bend * Math.sin(i * Math.PI / (STAR_ROUTE.count - 1)),
           y: py - lead - i * 80, collected: false
         }));
-        this.starRoute = { stars, collected: 0 };
+        this.starRoute = { stars, collected: 0, born: this.time };
       }
       const route = this.starRoute;
       if (!route) return;
-      // Scroll in screen space for a predictable line at both cruise and full throttle.
-      const dy = (STAR_ROUTE.drift - (tabletop ? this.player.cruiseSpeed : 0)) * dt;
-      const radius = tabletop ? clamp(this.rig.width * 0.42, 30, 48) : 32;
+      const baseWorldVy = playerWorldVy !== null ? playerWorldVy : (tabletop ? -this.player.cruiseSpeed : 0);
+      // Cruise keeps a steady screen drift; pushing forward surges into the star line just like arcade mode.
+      const dy = (STAR_ROUTE.drift + baseWorldVy + pickupSurgeVy) * dt;
+      const rx = tabletop ? clamp(this.rig.width * 0.46, 30, 64) : 32;
+      const ry = tabletop ? clamp(this.rig.length * 0.52, 34, 88) : 32;
+      const refX = route.born === this.time ? px : startX;
+      const refY = route.born === this.time ? py : startY;
       for (const star of route.stars) {
+        const fromX = (star.x - refX) / rx;
+        const fromY = (star.y - refY) / ry;
         star.y += dy;
-        if (star.collected || Math.hypot(star.x - px, star.y - py) > radius) continue;
+        if (star.collected) continue;
+        const toX = (star.x - px) / rx;
+        const toY = (star.y - py) / ry;
+        const pathX = toX - fromX;
+        const pathY = toY - fromY;
+        const path2 = pathX * pathX + pathY * pathY;
+        const t = path2 ? clamp(-(fromX * pathX + fromY * pathY) / path2, 0, 1) : 1;
+        if (Math.hypot(fromX + pathX * t, fromY + pathY * t) > 1) continue;
         star.collected = true;
         route.collected++;
         this.score += STAR_ROUTE.points;
@@ -2534,7 +2700,7 @@
         this.starRoute = null;
       } else {
         const bottom = tabletop ? py + this.height * (1 - this.rig.anchorY) : this.height;
-        if (route.stars[route.stars.length - 1].y > bottom + radius) this.starRoute = null;
+        if (route.stars[route.stars.length - 1].y > bottom + ry) this.starRoute = null;
       }
     }
 
@@ -2547,6 +2713,7 @@
         kind,
         magnet: false,
         spin: Math.random() * Math.PI * 2,
+        born: this.time,
         life: kind === 'medal' ? 6.5 : 11
       });
     }
@@ -2991,7 +3158,7 @@
           for (let j = this.enemies.length - 1; j >= 0; j--) {
             const e = this.enemies[j];
             if (Math.hypot(b.x - e.x, b.y - e.y) < e.radius + b.r + 4) {
-              this._damageEnemy(e, 24 * (mods.windReflectMult || 1.8), j);
+              this._damageEnemy(e, 24 * (mods.windReflectMult || 1.8) * this._skillPowerScale(), j);
               this._spawnExplosion(b.x, b.y, '#67e8f9', 4, 90);
               hitEnemy = true;
               break;
@@ -3037,8 +3204,8 @@
       }
     }
 
-    _stepPowerups(dt, px, py) {
-      const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
+    _stepPowerups(dt, px, py, startX = px, startY = py, playerWorldVy = null, pickupSurgeVy = 0, surgeRatio = 0, rigPad = 0) {
+      const worldVyOffset = playerWorldVy !== null ? playerWorldVy : (this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0);
       const collectR = (this.rig.mode === 'tabletop' ? Math.max(this.rig.width, this.rig.length) * 0.58 : 34) + 16;
       const p = this.player;
       const mods = this._mods();
@@ -3047,22 +3214,37 @@
         const pw = this.powerups[i];
         pw.life -= dt;
         pw.spin += dt * 4;
+        const headOn = clamp((py - pw.y) / 48, 0, 1);
         const d = Math.hypot(px - pw.x, py - pw.y);
-        const magnetRadius = Math.max((pw.kind === 'medal' ? 150 : 190) * mods.pickupRadiusMult, this.starMagnet > 0 ? 420 : 0);
+        const baseMag = ((pw.kind === 'medal' ? 150 : 190) + rigPad) * mods.pickupRadiusMult * (1 + 0.18 * surgeRatio * headOn);
+        const magnetRadius = Math.max(baseMag, this.starMagnet > 0 ? 420 + rigPad : 0);
         if (d < magnetRadius) pw.magnet = true;
+
+        const refX = pw.born === this.time ? px : startX;
+        const refY = pw.born === this.time ? py : startY;
+        const fromX = pw.x - refX;
+        const fromY = pw.y - refY;
 
         if (pw.magnet) {
           const ang = Math.atan2(py - pw.y, px - pw.x);
           pw.x += Math.cos(ang) * 640 * dt;
-          pw.y += (Math.sin(ang) * 640 + worldVyOffset) * dt;
+          pw.y += (Math.sin(ang) * 640 + worldVyOffset + pickupSurgeVy * headOn) * dt;
         } else {
           pw.vy = Math.min(135, pw.vy + 180 * dt);
           pw.vx *= Math.exp(-dt * 1.5);
           pw.x += pw.vx * dt;
-          pw.y += (pw.vy + worldVyOffset) * dt;
+          pw.y += (pw.vy + worldVyOffset + pickupSurgeVy) * dt;
         }
 
-        if (d < collectR) {
+        const toX = pw.x - px;
+        const toY = pw.y - py;
+        const pathX = toX - fromX;
+        const pathY = toY - fromY;
+        const path2 = pathX * pathX + pathY * pathY;
+        const t = path2 ? clamp(-(fromX * pathX + fromY * pathY) / path2, 0, 1) : 1;
+        const minDist = Math.hypot(fromX + pathX * t, fromY + pathY * t);
+
+        if (minDist < collectR) {
           this._tip(pw.kind);
           if (this.tutorial && pw.tutorial) this.tutorial.picked = pw.kind;
           let text = '';
@@ -3095,9 +3277,10 @@
               text = '核弹补给 +1';
               color = '#fed7aa';
             } else if (pw.kind === 'shield') {
-              if (p.shield < 2) {
+              const maxS = mods.maxShields || 2;
+              if (p.shield < maxS) {
                 p.shield++;
-                text = p.shield === 2 ? '双层能量护盾！' : '能量护盾展开';
+                text = p.shield >= 3 ? '三层星神护盾！' : (p.shield === 2 ? '双层能量护盾！' : '能量护盾展开');
               } else {
                 this.score += 400;
                 text = '护盾满载 +400';
@@ -3158,7 +3341,11 @@
         this._rumbleGamepad(0.5, 160);
         this.shockwaves.push({ x: sx, y: sy, r: 30, maxR: 190, color: '#67e8f9', life: 0.45, maxLife: 0.45, width: 7 });
         this._spawnExplosion(sx, sy, '#a5f3fc', 18, 260);
-        this.floatingTexts.push({ x: sx, y: sy - 52, text: '能量护盾抵消！', color: '#67e8f9', life: 1.0 });
+        if (this.roguelite) {
+          this.roguelite.powerScale = this._skillPowerScale();
+          this.roguelite.notifyShieldBreak(sx, sy, this.enemies, this.enemyBullets);
+        }
+        this.floatingTexts.push({ x: sx, y: sy - 52, text: this._mods().aegisAwakened ? '👑 星神护盾反震清场！' : '能量护盾抵消！', color: '#67e8f9', life: 1.0 });
         this.onTelemetry({ hitVibrate: true });
         this.onStateChange(this.getPublicState());
         return true;
@@ -3501,6 +3688,7 @@
         pureCamera: this.rig.pureCamera,
         godMode: this.rig.godMode,
         visualFilter: this.rig.visualFilter,
+        bulletStyle: this.rig.bulletStyle,
         sky: this.getEffectiveSky(),
         bank: Number((p.bank || 0).toFixed(3)),
         speedRatio: Number(this._visualBoost().toFixed(2)),
@@ -5012,27 +5200,141 @@
       ctx.fill();
     }
 
-    // Our shots: long capsules in the cyan / white / green family (never the enemies' warm colours),
-    // with a thin dark rim so they read on bright clouds, slightly translucent so they never hide enemy fire.
+    // Our shots: oriented along their screen flight vector and cached as crisp vector sprites per (shape, colour).
+    // Stays in the cool/bright spectrum with a subtle dark rim so shots read on bright clouds without hiding enemy fire.
     _renderPlayerBullets(ctx) {
+      if (this.bullets.length === 0) return;
+      const worldVyOffset = this.rig.mode === 'tabletop' ? -this.player.cruiseSpeed : 0;
       ctx.save();
       for (const b of this.bullets) {
-        const x = b.x - b.w * 0.5;
-        const y = b.y - b.h * 0.5;
-        const quiet = b.drone ? 0.6 : 1;
-        ctx.globalAlpha = 0.18 * quiet;
-        ctx.fillStyle = b.color;
-        ctx.fillRect(b.x - b.w * 1.1, b.y - b.h * 0.6, b.w * 2.2, b.h * 1.2);
-        ctx.globalAlpha = 0.3 * quiet;
-        ctx.fillStyle = '#0b1a33';
-        ctx.fillRect(x - 0.75, y - 0.75, b.w + 1.5, b.h + 1.5);
-        ctx.globalAlpha = 0.72 * quiet;
-        ctx.fillStyle = b.color;
-        ctx.fillRect(x, y, b.w, b.h);
-        ctx.fillStyle = '#f8fdff';
-        ctx.fillRect(b.x - b.w * 0.2, y + b.h * 0.08, b.w * 0.4, b.h * 0.7);
+        const shape = b.shape || (b.drone ? 'drone' : 'laser');
+        const spr = this._playerBulletSprite(shape, b.color || '#38bdf8');
+        const relVy = b.vy - worldVyOffset;
+        const rot = (Math.abs(b.vx) > 1 || relVy > 0) ? Math.atan2(relVy, b.vx) + Math.PI * 0.5 : 0;
+        ctx.globalAlpha = b.drone ? 0.68 : (b.crit ? 0.94 : 0.84);
+
+        if (spr && spr.canvas && spr.canvas.width > 0) {
+          const drawW = b.w * spr.wScale;
+          const drawH = b.h * spr.hScale;
+          if (rot !== 0) {
+            ctx.save();
+            ctx.translate(b.x, b.y);
+            ctx.rotate(rot);
+            ctx.drawImage(spr.canvas, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
+            ctx.restore();
+          } else {
+            ctx.drawImage(spr.canvas, b.x - drawW * 0.5, b.y - drawH * 0.5, drawW, drawH);
+          }
+        } else {
+          // Headless / test fallback when offscreen canvas is unavailable
+          ctx.fillStyle = b.color || '#38bdf8';
+          ctx.fillRect(b.x - b.w * 0.5, b.y - b.h * 0.5, b.w, b.h);
+        }
       }
       ctx.restore();
+    }
+
+    _playerBulletSprite(shape, color) {
+      if (!this._playerShotCache) this._playerShotCache = new Map();
+      const key = `${shape}|${color}`;
+      let spr = this._playerShotCache.get(key);
+      if (spr) return spr;
+
+      const c = (global.document && global.document.createElement) ? global.document.createElement('canvas') : null;
+      if (!c || typeof c.getContext !== 'function') return null;
+      const g = c.getContext('2d');
+      if (!g || typeof g.beginPath !== 'function') return null;
+
+      // Canonical sprite canvas: 36x64 logical units @ 2x supersampling, nose pointing -Y
+      const W = 36, H = 64, scale = 2;
+      c.width = W * scale;
+      c.height = H * scale;
+      g.scale(scale, scale);
+      g.translate(W * 0.5, H * 0.5);
+
+      const rim = 'rgba(7, 18, 36, 0.72)';
+      const drawSymmetric = (pts, fill, stroke, lw = 1.6) => {
+        g.beginPath();
+        pts.forEach(([px, py], idx) => { if (idx === 0) g.moveTo(px, py); else g.lineTo(px, py); });
+        for (let i = pts.length - 2; i >= 1; i--) g.lineTo(-pts[i][0], pts[i][1]);
+        g.closePath();
+        if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.lineJoin = 'round'; g.stroke(); }
+        if (fill) { g.fillStyle = fill; g.fill(); }
+      };
+
+      // Soft outer aura + trailing ion wake
+      const wake = g.createLinearGradient(0, -24, 0, 28);
+      wake.addColorStop(0, color);
+      wake.addColorStop(0.65, color);
+      wake.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      g.globalAlpha = 0.24;
+      g.fillStyle = wake;
+      g.beginPath();
+      g.ellipse(0, 2, shape === 'blade' || shape === 'star' ? 11 : 7.5, 25, 0, 0, Math.PI * 2);
+      g.fill();
+      g.globalAlpha = 1;
+
+      let wScale = 3.2, hScale = 1.55;
+
+      if (shape === 'sword') {
+        // Flying spirit sword: sharp tip, fuller ridge, cross-guard wings & pommel tassel
+        wScale = 3.8; hScale = 1.68;
+        drawSymmetric([[0, -27], [3.6, -12], [3.2, 7], [9.5, 10.5], [3.5, 13.5], [2.2, 22], [0, 26]], color, rim, 2);
+        drawSymmetric([[0, -23], [1.5, -10], [1.2, 9], [0, 17]], '#ffffff', null);
+      } else if (shape === 'blade') {
+        // Crescent wind-arc wave: curved leading edge with hollowed trailing arc
+        wScale = 4.1; hScale = 1.42;
+        g.beginPath();
+        g.moveTo(-12.5, 12);
+        g.quadraticCurveTo(0, -28, 12.5, 12);
+        g.quadraticCurveTo(0, -5, -12.5, 12);
+        g.closePath();
+        g.strokeStyle = rim; g.lineWidth = 2.2; g.lineJoin = 'round'; g.stroke();
+        g.fillStyle = color; g.fill();
+        g.beginPath();
+        g.moveTo(-7.5, 6);
+        g.quadraticCurveTo(0, -20, 7.5, 6);
+        g.quadraticCurveTo(0, -7, -7.5, 6);
+        g.closePath();
+        g.fillStyle = '#ffffff'; g.fill();
+      } else if (shape === 'prism') {
+        // Faceted crystal shard: hexagonal diamond with inner specular facet
+        wScale = 3.5; hScale = 1.5;
+        drawSymmetric([[0, -25], [7.2, -5], [4.6, 13], [0, 24]], color, rim, 2);
+        drawSymmetric([[0, -19], [3.3, -4], [1.8, 9], [0, 16]], '#ffffff', null);
+      } else if (shape === 'lance') {
+        // Piercing plasma spear: elongated needle tip + swept twin barbs
+        wScale = 3.6; hScale = 1.72;
+        drawSymmetric([[0, -29], [3.2, -8], [8.2, 3], [3.0, 1.5], [2.2, 25], [0, 29]], color, rim, 1.9);
+        drawSymmetric([[0, -25], [1.4, -5], [1.1, 18], [0, 23]], '#ffffff', null);
+      } else if (shape === 'slug') {
+        // Tank heavy autocannon shell: broad armor-piercing ogive + twin mach shock rings
+        wScale = 3.3; hScale = 1.48;
+        drawSymmetric([[0, -23], [6.2, -11], [6.2, 9], [4.2, 16], [0, 18]], color, rim, 2.2);
+        drawSymmetric([[0, -18], [3.1, -9], [3.1, 7], [0, 12]], '#ffffff', null);
+        g.strokeStyle = '#ffffff'; g.lineWidth = 1.5; g.globalAlpha = 0.7;
+        g.beginPath(); g.ellipse(0, 21, 5.2, 2, 0, 0, Math.PI * 2); g.stroke();
+      } else if (shape === 'star') {
+        // Critical overload starbolt: blazing 4-point cross-flare
+        wScale = 4.2; hScale = 1.62;
+        drawSymmetric([[0, -27], [3.4, -7], [12.5, -2], [3.4, 3], [2.4, 21], [0, 26]], color, rim, 2);
+        drawSymmetric([[0, -21], [1.8, -5], [7.5, -2], [1.8, 1.5], [0, 16]], '#ffffff', null);
+      } else if (shape === 'drone') {
+        // Compact autonomous bit-bolt
+        wScale = 3.1; hScale = 1.45;
+        drawSymmetric([[0, -20], [5.2, -2], [2.8, 14], [0, 20]], color, rim, 1.8);
+        drawSymmetric([[0, -14], [2.2, -2], [0, 11]], '#f8fdff', null);
+      } else {
+        // 'laser' supersonic aero-capsule: sleek tapered bolt + hot core
+        wScale = 3.0; hScale = 1.55;
+        drawSymmetric([[0, -24], [4.6, -12], [4.2, 12], [2.2, 22], [0, 25]], color, rim, 1.9);
+        drawSymmetric([[0, -19], [2.0, -10], [1.6, 10], [0, 17]], '#f8fdff', null);
+      }
+
+      spr = { canvas: c, wScale, hScale };
+      if (this._playerShotCache.size > 72) this._playerShotCache.clear();
+      this._playerShotCache.set(key, spr);
+      return spr;
     }
 
     // Enemy fire is the top layer: drawn above the craft, flames, explosions and wind.
@@ -5455,7 +5757,8 @@
       // Row 1: Hull bar + shield pips + percentage
       const frac = clamp(p.hp / p.maxHp, 0, 1);
       const hpPct = Math.max(0, Math.ceil(frac * 100));
-      const pipsW = 24;
+      const maxShieldPips = this._mods().maxShields || 2;
+      const pipsW = 2 + maxShieldPips * 11;
       const pctW = 30;
       const barX = L + 26;
       const barW = Math.max(46, R - pipsW - pctW - barX);
@@ -5487,13 +5790,13 @@
       ctx.fillText(this.rig.godMode ? '护航' : `${hpPct}%`, R - pipsW - 2, y0 + 12);
 
       ctx.shadowBlur = 0;
-      for (let k = 0; k < 2; k++) {
-        ctx.strokeStyle = '#93ded0';
+      for (let k = 0; k < maxShieldPips; k++) {
+        ctx.strokeStyle = k === 2 ? '#fde047' : '#93ded0';
         ctx.lineWidth = 1.3;
         ctx.beginPath();
         ctx.arc(R - pipsW + 7 + k * 11, y0 + 8.5, 3.6, 0, Math.PI * 2);
         if (k < p.shield) {
-          ctx.fillStyle = '#93ded0';
+          ctx.fillStyle = k === 2 ? '#fde047' : '#93ded0';
           ctx.fill();
         }
         ctx.stroke();

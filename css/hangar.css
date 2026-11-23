@@ -180,6 +180,8 @@
 }
 .choice-line button span { display: block; font-size: .66rem; font-weight: 400; }
 .choice-line button.active { background: #d3e8dd; border-color: #32685e; color: #163c35; box-shadow: inset 0 0 0 1px #32685e; }
+.choice-line.choice-bullets { grid-template-columns: 2rem repeat(5, minmax(0, 1fr)); }
+.choice-line.choice-bullets button { font-size: .72rem; padding-inline: .12rem; }
 .callsign { grid-template-columns: 2rem 1fr; }
 .callsign input { width: 100%; padding-inline: .5rem; font-weight: 500; }
 .launch-actions {
