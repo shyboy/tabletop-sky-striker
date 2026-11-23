@@ -1447,42 +1447,41 @@
     }
 
     renderHudBar(ctx, W, H, hudTop = 12, alpha = 1, panelWidth = 0) {
-      const barW = panelWidth ? panelWidth - 59 : Math.min(300, Math.max(150, W - 260));
-      const x = panelWidth ? 65 : (W - barW) * 0.5;
+      const x0 = panelWidth ? 20 : Math.max(20, (W - Math.min(260, Math.max(150, W - 260))) * 0.5);
+      const totalW = panelWidth ? Math.max(130, panelWidth - 6) : Math.min(260, Math.max(150, W - 260));
+      const labelW = 34;
+      const barX = x0 + labelW;
+      const barW = Math.max(48, totalW - labelW);
       const y = panelWidth ? hudTop : Math.max(8, hudTop - 2);
       const ratio = clamp(this.xp / Math.max(1, this.xpNext), 0, 1);
 
       ctx.save();
       ctx.globalAlpha = clamp(alpha, 0.25, 1);
+      ctx.shadowColor = 'rgba(5, 18, 24, 0.78)';
+      ctx.shadowBlur = 4;
 
-      if (!panelWidth) {
-        ctx.fillStyle = 'rgba(7, 20, 38, 0.65)';
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(x - 48, y, barW + 52, 18, 9) : ctx.rect(x - 48, y, barW + 52, 18);
-        ctx.fill();
-      }
-
-      ctx.font = '900 10.5px system-ui, -apple-system, sans-serif';
+      ctx.font = '700 10px "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = this.levelFlash > 0 ? '#fde047' : '#7dd3fc';
-      ctx.fillText(`Lv.${this.level}`, x - 40, y + 9.5);
+      ctx.fillStyle = this.levelFlash > 0 ? '#faf3e1' : '#ffbe69';
+      ctx.fillText(`LV.${this.level}`, x0, y + 7);
 
-      // Bar track
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(x, y + 5, barW - 4, 8, 4) : ctx.rect(x, y + 5, barW - 4, 8);
-      ctx.fill();
+      // Sleek frameless aviation XP gauge track
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(7, 25, 31, 0.62)';
+      ctx.fillRect(barX, y + 5, barW, 4);
+      ctx.strokeStyle = 'rgba(250, 243, 225, 0.22)';
+      ctx.lineWidth = 0.75;
+      ctx.strokeRect(barX - 0.5, y + 4.5, barW + 1, 5);
 
-      if (ratio > 0.01) {
-        const g = ctx.createLinearGradient(x, 0, x + barW, 0);
-        g.addColorStop(0, '#38bdf8');
-        g.addColorStop(0.6, '#a78bfa');
-        g.addColorStop(1, '#fde047');
+      if (ratio > 0.008) {
+        const fillW = Math.max(3, barW * ratio);
+        const g = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+        g.addColorStop(0, '#93ded0');
+        g.addColorStop(0.65, '#ffbe69');
+        g.addColorStop(1, '#faf3e1');
         ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(x, y + 5, Math.max(6, (barW - 4) * ratio), 8, 4) : ctx.rect(x, y + 5, Math.max(6, (barW - 4) * ratio), 8);
-        ctx.fill();
+        ctx.fillRect(barX, y + 5, fillW, 4);
       }
 
       ctx.restore();

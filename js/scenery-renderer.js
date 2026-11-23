@@ -1205,6 +1205,84 @@
       };
     }
 
+    /**
+     * Zero-allocation deterministic query for volumetric cloud density directly beneath (screenX, screenY).
+     * Drives realistic aircraft cloud-top cast shadows & subtle wing-tip cloud-skimming mist wisps.
+     */
+    sampleCloudCover(params = {}) {
+      const W = Math.max(320, Number(params.W) || this.width || 1280);
+      const H = Math.max(320, Number(params.H) || this.height || 800);
+      const anchorX = typeof params.anchorX === 'number' ? params.anchorX : W * 0.5;
+      const anchorY = typeof params.anchorY === 'number' ? params.anchorY : H * 0.75;
+      const sx = typeof params.screenX === 'number' ? params.screenX : anchorX;
+      const sy = typeof params.screenY === 'number' ? params.screenY : anchorY;
+      const scrollDist = typeof params.scrollDist === 'number' ? params.scrollDist : this._scrollDist;
+      const worldOffsetX = typeof params.worldOffsetX === 'number' ? params.worldOffsetX : this._worldOffsetX;
+      const corridorOff = typeof params.corridorOffset === 'number' ? params.corridorOffset : this._corridorOffset;
+      const onTitle = (params.phase || 'playing') === 'title';
+      const fallbackCalm = onTitle ? DEFAULT_CALM_TITLE : DEFAULT_CALM_PLAYING;
+      const rawCalm = params.calm || this._calm || fallbackCalm;
+      const calmCloud = clamp(rawCalm.cloud !== undefined ? Number(rawCalm.cloud) : fallbackCalm.cloud, 0, 1);
+      const calmVeil = onTitle ? 0 : clamp(rawCalm.veil !== undefined ? Number(rawCalm.veil) : fallbackCalm.veil, 0, 0.9);
+      const combatWeight = onTitle ? 0 : clamp(calmVeil / 0.3, 0, 1);
+      const lane = this._computeCorridor(W, H, anchorX, anchorY, scrollDist, corridorOff);
+
+      const layers = [
+        { parallax: 1.18, cell: 360, threshold: 0.62, scaleMin: 0.78, scaleMax: 1.24, seed: 193, heightFactor: 0.55, baseW: 118, baseH: 76 },
+        { parallax: 0.76, cell: 330, threshold: 0.56, scaleMin: 0.62, scaleMax: 1.05, seed: 71, heightFactor: 1.0, baseW: 112, baseH: 72 }
+      ];
+
+      let bestDensity = 0;
+      let bestHeight = 0.85;
+
+      for (let li = 0; li < layers.length; li++) {
+        const cfg = layers[li];
+        const pf = cfg.parallax;
+        const cell = cfg.cell;
+        const gxC = Math.floor((sx - anchorX + worldOffsetX * pf) / cell);
+        const gyC = Math.floor((sy - anchorY - scrollDist * pf) / cell);
+        for (let gx = gxC - 1; gx <= gxC + 1; gx++) {
+          for (let gy = gyC - 1; gy <= gyC + 1; gy++) {
+            const h = hash2D(gx + cfg.seed, gy - cfg.seed);
+            if (h <= cfg.threshold) continue;
+            const cx = anchorX + (gx + (h * 19 % 0.78)) * cell - worldOffsetX * pf;
+            const cy = anchorY + (gy + (h * 43 % 0.78)) * cell + scrollDist * pf;
+            const tNorm = (h - cfg.threshold) / (1 - cfg.threshold);
+            const sc = lerp(cfg.scaleMin, cfg.scaleMax, tNorm);
+            const rx = cfg.baseW * sc;
+            const ry = cfg.baseH * sc;
+            const dx = (sx - cx) / rx;
+            const dy = (sy - cy) / ry;
+            const d2 = dx * dx + dy * dy;
+            if (d2 >= 1) continue;
+            const maskA = lane.mask(cx, cy, combatWeight);
+            const falloff = (1 - d2) * (1 - d2);
+            const cover = falloff * clamp(maskA * (0.35 + calmCloud * 0.65), 0.12, 1);
+            if (cover > bestDensity) {
+              bestDensity = cover;
+              bestHeight = cfg.heightFactor;
+            }
+          }
+        }
+      }
+
+      // Also detect skimming over the canyon rim cloud banks along either side of the corridor
+      const distFromCenter = Math.abs(sx - lane.cxAt(sy));
+      const rimStart = lane.hw * 0.78;
+      if (distFromCenter > rimStart) {
+        const rimCover = clamp((distFromCenter - rimStart) / (lane.hw * 0.42), 0, 1) * (0.45 + calmCloud * 0.45);
+        if (rimCover > bestDensity) {
+          bestDensity = rimCover;
+          bestHeight = 0.68;
+        }
+      }
+
+      return {
+        density: clamp(bestDensity, 0, 1),
+        heightFactor: bestHeight
+      };
+    }
+
     render(ctx, params = {}) {
       if (!ctx) return;
 

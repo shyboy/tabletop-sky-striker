@@ -34,6 +34,26 @@
   const DIFF_LABEL = { easy: '轻松', normal: '标准', ace: '王牌' };
   const DIFF_COLOR = { easy: '#2fae6b', normal: '#2f7fe0', ace: '#d9483b' };
   const TOY_DEFAULT_NAME = { jet: '桌面小飞机', car: '合金小车', orb: '旧橡皮' };
+  const PUBLIC_PLAY_URL = 'https://shyboy.github.io/tabletop-sky-striker/';
+
+  function resolvePlayUrl(raw) {
+    if (raw === false || raw === '') return '';
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    try {
+      const loc = typeof window !== 'undefined' && window.location;
+      if (loc && /^https?:$/i.test(loc.protocol || '') && loc.hostname) {
+        const h = loc.hostname.toLowerCase();
+        const isPrivate = h === 'localhost' || h.endsWith('.local') ||
+          /^(127\.|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) ||
+          h === '[::1]' || h === '::1';
+        if (!isPrivate) {
+          const cleanPath = (loc.pathname || '/').replace(/\/(index|controller|crew)\.html$/i, '/');
+          return loc.origin + (cleanPath.endsWith('/') ? cleanPath : cleanPath + '/');
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return PUBLIC_PLAY_URL;
+  }
 
   /* ------------------------------------------------------------------ utils */
 
@@ -617,6 +637,7 @@
     d.dateText = (typeof s.dateText === 'string' && s.dateText.trim()) ? s.dateText.trim() : todayText();
     d.snapshot = s.snapshot || null;
     d.epilogue = (typeof s.epilogue === 'string' && s.epilogue.trim()) ? s.epilogue.trim() : defaultEpilogue(d);
+    d.shareUrl = resolvePlayUrl(s.shareUrl);
     return d;
   }
 
@@ -1078,7 +1099,65 @@
     ctx.textAlign = 'left';
   }
 
-  function drawFooter(ctx, d, X0, X1, y) {
+  function drawShareQR(ctx, url, xRight, yTop) {
+    if (!url || typeof window === 'undefined' || !window.MiniQR || typeof window.MiniQR.generateMatrix !== 'function') {
+      return 0;
+    }
+    let matrix;
+    try {
+      matrix = window.MiniQR.generateMatrix(url);
+    } catch (e) {
+      return 0;
+    }
+    if (!matrix || !matrix.length) return 0;
+
+    const n = matrix.length;
+    const quiet = 2;
+    const total = n + quiet * 2;
+    const mod = Math.max(2, Math.floor(99 / total));
+    const qrPx = total * mod;
+    const pad = 4;
+    const boxW = qrPx + pad * 2;
+    const bx = Math.round(xRight - boxW);
+    const by = Math.round(yTop);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(40,30,10,0.12)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = '#ffffff';
+    rr(ctx, bx, by, boxW, boxW, 12);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = '#e2d5b8';
+    ctx.lineWidth = 1.5;
+    rr(ctx, bx, by, boxW, boxW, 12);
+    ctx.stroke();
+
+    const ox = bx + pad;
+    const oy = by + pad;
+    ctx.fillStyle = '#1d2b48';
+    for (let r = 0; r < n; r++) {
+      const row = matrix[r];
+      for (let c = 0; c < n; c++) {
+        if (row[c]) {
+          ctx.fillRect(ox + (c + quiet) * mod, oy + (r + quiet) * mod, mod, mod);
+        }
+      }
+    }
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#6b5b3e';
+    fitText(ctx, '扫码借风起飞', bx + boxW / 2, by + boxW + 17, boxW + 16, 15, 11, 700);
+    ctx.restore();
+
+    return bx - 22;
+  }
+
+  function drawFooter(ctx, d, X0, X1, y, compactBrand) {
     ctx.strokeStyle = LINE;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1090,26 +1169,26 @@
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#a79a7d';
-    ctx.font = font(700, 17, true);
-    const brand = 'TABLETOP SKY STRIKER';
+    ctx.font = font(700, compactBrand ? 15 : 17, true);
+    const brand = compactBrand ? 'SKY STRIKER' : 'TABLETOP SKY STRIKER';
     let bx = X1;
     const chars = Array.from(brand).reverse();
     for (const ch of chars) {
       ctx.fillText(ch, bx, mid + 1);
-      bx -= ctx.measureText(ch).width + 2;
+      bx -= ctx.measureText(ch).width + (compactBrand ? 1.5 : 2);
     }
-    drawToy(ctx, 'jet', bx - 16, mid, 24, Math.PI / 4);
-    const brandLeft = bx - 34;
+    drawToy(ctx, 'jet', bx - 15, mid, 22, Math.PI / 4);
+    const brandLeft = bx - 32;
 
     // date (left)
     ctx.textAlign = 'left';
     ctx.fillStyle = INK;
     ctx.font = font(800, 24, true);
-    const dateMax = 230;
+    const dateMax = 210;
     fitFont(ctx, d.dateText, dateMax, 24, 16, 800, true);
     const dt = ellipsize(ctx, d.dateText, dateMax);
     ctx.fillText(dt, X0, mid + 1);
-    let px = X0 + ctx.measureText(dt).width + 18;
+    let px = X0 + ctx.measureText(dt).width + 16;
     ctx.textBaseline = 'alphabetic';
 
     // tags
@@ -1190,8 +1269,10 @@
 
     drawScoreRow(ctx, d, X0, X1, 846);
     const statsH = drawStats(ctx, d, X0, 1070, X1 - X0);
-    drawEpilogue(ctx, d, X0, X1, 1070 + statsH + 6, 1338 - (1070 + statsH + 6));
-    drawFooter(ctx, d, X0, X1, 1338);
+    const qrLeft = drawShareQR(ctx, d.shareUrl, X1, 1270);
+    const stubRight = qrLeft > 0 ? qrLeft : X1;
+    drawEpilogue(ctx, d, X0, stubRight, 1070 + statsH + 6, 1338 - (1070 + statsH + 6));
+    drawFooter(ctx, d, X0, stubRight, 1338, qrLeft > 0);
 
     return canvas;
   }

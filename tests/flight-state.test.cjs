@@ -479,3 +479,29 @@ test('XP from mixed kills grants a first draft at exactly 36 even when drops div
   assert.equal(skills.level, 2);
   assert.equal(skills.pendingLevelUps, 1);
 });
+
+test('wingtip contrails record trails in both modes, reset on mode switch, and HUD reports heading & filter', () => {
+  const { engine } = createFlight();
+  engine.startMission({ tutorial: false });
+  engine.keys.add('KeyD');
+  advance(engine, 12);
+  assert.ok(engine.contrails.left.length > 0 && engine.contrails.right.length > 0);
+  assert.equal(engine.rig.visualFilter, 'normal');
+
+  engine.updateRig({ visualFilter: 'pixel' }, false);
+  assert.equal(engine.rig.visualFilter, 'pixel');
+  engine.updateRig({ visualFilter: 'invalid_filter' }, false);
+  assert.equal(engine.rig.visualFilter, 'pixel');
+
+  const labels = [];
+  const ctx = new Proxy({ fillText: str => labels.push(str) }, { get: (obj, key) => obj[key] || (() => {}) });
+  engine._renderMinimalHUD(ctx, 1280, 800);
+  const hudText = labels.join(' ');
+  assert.match(hudText, /HDG \d{3}°/);
+  assert.match(hudText, /KM/);
+
+  engine.updateRig({ mode: 'arcade' }, false);
+  assert.equal(engine.contrails.left.length, 0);
+  advance(engine, 10);
+  assert.ok(engine.contrails.left.length > 0 && engine.contrails.right.length > 0);
+});

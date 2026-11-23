@@ -60,8 +60,60 @@
   padding: .65rem;
   gap: .65rem;
 }
-.mfd-bay .radar-card { background: #091e25; border-color: #395c61; }
-#radar-canvas { width: min(100%, 136px); height: auto; }
+.mfd-bay .radar-card {
+  background: #081b21;
+  border-color: #416267;
+  gap: .3rem;
+  padding: .36rem;
+}
+.mfd-bezel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 190, 105, 0.32);
+  background: #051318;
+  cursor: pointer;
+}
+#radar-canvas {
+  width: min(100%, 132px);
+  height: auto;
+  border-radius: 50%;
+}
+.mfd-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .22rem;
+  width: 100%;
+}
+.mfd-switch-btn {
+  position: relative;
+  appearance: none;
+  min-block-size: 24px;
+  min-inline-size: 56px;
+  padding: .1rem .44rem;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 222, 208, 0.36);
+  background: #102e35;
+  color: var(--sun);
+  font: 700 .62rem/1.1 var(--console-mono);
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.mfd-switch-btn:hover {
+  border-color: var(--sun);
+  background: #183d45;
+}
+@media (pointer: coarse) {
+  .mfd-switch-btn::after {
+    content: "";
+    position: absolute;
+    inset: -10px -8px;
+  }
+}
 .radar-caption, .weapon-label, .deck-label { color: var(--sea-glass); font-size: .75rem; font-weight: 700; }
 .chapter-line { color: var(--sun); font-size: .83rem; line-height: 1.35; }
 .stats-strip { align-items: baseline; margin: .22rem 0; }
@@ -189,6 +241,7 @@
 @media (orientation: landscape) and (min-width: 560px) and (max-width: 700px) and (max-height: 440px) {
   .mfd-bay { position: relative; display: block; padding: .4rem; }
   .mfd-bay .radar-card { position: absolute; top: .45rem; left: .38rem; width: 47px; padding: .14rem; }
+  .mfd-switch-btn { display: none; }
   .radar-caption { font-size: .6rem; }
   .sensor-col { min-height: 100%; gap: .3rem; }
   .sensor-col > :first-child { padding-left: 52px; }

@@ -136,3 +136,23 @@ test('tablet pointer cancellation and lost capture clear charge while a delibera
   button.dispatch('pointerup', press);
   assert.ok(engine.player.railBeamTimer > 0);
 });
+
+test('pressing V cycles and persists the visual filter easter egg across title and flight', async () => {
+  const { get, engine, profile, windowEvents } = await openHost('http://localhost:8780/?room=ABCD', endpoints);
+  get('help-overlay').hidden = true;
+  assert.equal(engine.rig.visualFilter, 'normal');
+
+  windowEvents.dispatch('keydown', { code: 'KeyV', repeat: false, preventDefault: noop });
+  assert.equal(engine.rig.visualFilter, 'pixel');
+  assert.equal(profile.get('skyStriker.visualFilter'), 'pixel');
+  assert.match(get('pc-filter').textContent, /复古像素/);
+
+  engine.startMission({ tutorial: false });
+  windowEvents.dispatch('keydown', { code: 'KeyV', repeat: false, preventDefault: noop });
+  assert.equal(engine.rig.visualFilter, 'film');
+  assert.equal(profile.get('skyStriker.visualFilter'), 'film');
+  assert.match(get('btn-strip-filter').textContent, /胶片/);
+
+  windowEvents.dispatch('keydown', { code: 'KeyV', repeat: false, preventDefault: noop });
+  assert.equal(engine.rig.visualFilter, 'normal');
+});

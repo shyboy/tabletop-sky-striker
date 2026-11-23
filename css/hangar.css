@@ -334,3 +334,153 @@
 @media (orientation: portrait) and (max-width: 900px) {
   .flight-route, .flight-records { align-self: flex-start; background: #0a3039dc; border-radius: .27rem; padding: .2rem .42rem; text-shadow: none; }
 }
+
+/* Slim bottom aviation telemetry & shortcut strip (desktop / wide non-touch flight view) */
+.flight-strip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  min-block-size: 30px;
+  padding-top: .24rem;
+  padding-bottom: max(.28rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(.85rem, env(safe-area-inset-left, 0px));
+  padding-right: max(.85rem, env(safe-area-inset-right, 0px));
+  background: rgba(8, 25, 31, 0.78);
+  border-top: 1px solid rgba(147, 222, 208, 0.22);
+  color: var(--paper-muted);
+  font: 600 .7rem/1.2 var(--console-mono);
+  letter-spacing: .04em;
+  pointer-events: auto;
+}
+
+body.pure-camera .flight-strip,
+body.inspector-open .flight-strip,
+body.has-dock .flight-strip {
+  display: none;
+}
+
+.flight-strip-left,
+.flight-strip-keys,
+.flight-strip-right {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  min-inline-size: 0;
+}
+
+.flight-strip-left {
+  color: var(--paper);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flight-strip-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: var(--sun);
+  flex: 0 0 auto;
+}
+
+.flight-strip-keys {
+  color: #b7cdc7;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.flight-strip-keys kbd {
+  display: inline-block;
+  padding: .05rem .3rem;
+  margin-inline-end: .15rem;
+  border-radius: 3px;
+  border: 1px solid rgba(250, 243, 225, 0.25);
+  background: rgba(250, 243, 225, 0.08);
+  color: var(--paper);
+  font: 600 .66rem/1.1 var(--console-mono);
+}
+
+.flight-strip-nukes {
+  display: inline-flex;
+  align-items: center;
+  gap: .22rem;
+  color: var(--sun);
+  white-space: nowrap;
+}
+
+.strip-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: .24rem;
+  min-block-size: 24px;
+  min-inline-size: 24px;
+  padding: .12rem .45rem;
+  border-radius: 4px;
+  border: 1px solid rgba(147, 222, 208, 0.28);
+  background: rgba(17, 46, 53, 0.82);
+  color: var(--paper);
+  font: 600 .68rem/1 var(--console-mono);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.strip-btn:hover {
+  border-color: var(--sun);
+  color: #fff8e8;
+}
+
+.strip-btn[aria-pressed="true"] {
+  border-color: var(--sun);
+  background: rgba(255, 190, 105, 0.2);
+  color: var(--sun);
+}
+
+@media (max-width: 920px) {
+  .flight-strip-keys { display: none; }
+}
+
+@media (max-width: 560px) {
+  .flight-strip { display: none; }
+}
+
+/* Lightweight visual filter easter-egg toast */
+.filter-toast {
+  position: fixed;
+  top: max(3.6rem, calc(env(safe-area-inset-top, 0px) + 3.2rem));
+  left: 50%;
+  translate: -50% 0;
+  z-index: 26;
+  padding: .34rem .82rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 190, 105, 0.55);
+  background: rgba(11, 36, 42, 0.9);
+  color: var(--paper);
+  font: 700 .76rem/1.3 var(--console-mono);
+  letter-spacing: .04em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .22s ease;
+}
+
+.filter-toast.show {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .filter-toast {
+    transform: translateY(-6px);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .filter-toast.show {
+    transform: translateY(0);
+  }
+}

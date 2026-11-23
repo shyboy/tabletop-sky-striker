@@ -144,6 +144,11 @@
     dark: { label: '压暗', veil: 0.42, cloud: 0.16, sun: 0.14, lines: 0.08 },
     max: { label: '很暗', veil: 0.56, cloud: 0.08, sun: 0.06, lines: 0.04 }
   };
+  const VISUAL_FILTERS = Object.freeze({
+    normal: { label: '标准绘本' },
+    pixel: { label: '复古像素' },
+    film: { label: '暖调胶片' }
+  });
   // Main guns fire 1.45x less often with 1.45x damage: same firepower, far fewer bars filling the screen
   const SHOT_THIN = 1.45;
   const BG_CALM_TITLE = { veil: 0, cloud: 1, sun: 1, lines: 1 };
@@ -251,8 +256,15 @@
         difficulty: 'normal', // 'easy' | 'normal' | 'ace'
         hitSize: 'normal',    // bullet hit-core size: 'small' | 'normal' | 'large'
         toyName: '',          // the kid's name for the toy, shown on banners and the keepsake card
-        bgDim: 'normal'       // how far the scenery is pushed back in flight: 'normal' | 'dark' | 'max'
+        bgDim: 'normal',      // how far the scenery is pushed back in flight: 'normal' | 'dark' | 'max'
+        visualFilter: 'normal' // lightweight optional screen filter easter egg: 'normal' | 'pixel' | 'film'
       };
+
+      this._pixelBuffer = null;
+      this._ditherPattern = null;
+      this._filmPattern = null;
+      this._cloudCover = { density: 0, heightFactor: 0.85 };
+      this._cloudMistTimer = 0;
 
       this.calibHighlightTimer = 0;
       this.hudTop = 12; // set by the host page to sit below its floating toolbar
@@ -487,6 +499,11 @@
       this.shockwaves = [];
       this.floatingTexts = [];
       this.windStreaks = [];
+      this.contrails = { left: [], right: [] };
+      this.cloudWisps = [];
+      this._contrailAccum = 0;
+      this._cloudCover = { density: 0, heightFactor: 0.85 };
+      this._cloudMistTimer = 0;
 
       this.boss = null;
       this.spawnTimer = 1.6;
@@ -663,12 +680,18 @@
       if (Object.hasOwn(HIT_SIZE, patch.hitSize)) this.rig.hitSize = patch.hitSize;
       if (typeof patch.toyName === 'string') this.rig.toyName = patch.toyName.trim().slice(0, 8);
       if (patch.bgDim && BG_CALM[patch.bgDim]) this.rig.bgDim = patch.bgDim;
+      if (patch.visualFilter && VISUAL_FILTERS[patch.visualFilter]) this.rig.visualFilter = patch.visualFilter;
       // A new toy type before take-off changes the hull right away (mid-flight it keeps the current HP ratio)
       if (patch.shape && this.player) this._applyToyTraits(this.phase !== 'playing');
 
       if (previous.mode !== this.rig.mode) {
         // Existing shots use the previous mode's reference frame.
         for (const b of this.enemyBullets) b.life = 0;
+        if (this.contrails) {
+          this.contrails.left.length = 0;
+          this.contrails.right.length = 0;
+        }
+        if (this.cloudWisps) this.cloudWisps.length = 0;
         if (this.rig.mode === 'arcade') {
           this.player.screenX = this.width * 0.5;
           this.player.screenY = this.height * this.rig.anchorY;
@@ -1602,6 +1625,8 @@
         });
       }
       this._stepParticles(dt);
+      this._stepContrails(dt, px, py);
+      this._stepCloudInteraction(dt, px, py);
     }
 
     _visualBoost() {
@@ -3286,6 +3311,149 @@
       }
     }
 
+    // Smooth dual wingtip condensation ribbons anchored accurately in both tabletop and arcade modes
+    _stepContrails(dt, px, py) {
+      if (!this.contrails) return;
+      const p = this.player;
+      const isTabletop = this.rig.mode === 'tabletop';
+      const arcadeScroll = isTabletop ? 0 : (p.cruiseSpeed + this.breath * 140) * dt;
+      const maxLife = 0.56 + this._visualBoost() * 0.18 + this.breath * 0.14;
+
+      for (const side of ['left', 'right']) {
+        const list = this.contrails[side];
+        for (let i = list.length - 1; i >= 0; i--) {
+          const pt = list[i];
+          pt.x += pt.vx * dt;
+          pt.y += pt.vy * dt + arcadeScroll;
+          pt.life -= dt;
+          if (pt.life <= 0) list.splice(i, 1);
+        }
+      }
+
+      this._contrailAccum = (this._contrailAccum || 0) + dt;
+      if (this._contrailAccum < 0.022) return;
+      this._contrailAccum = Math.min(this._contrailAccum - 0.022, 0.022);
+
+      let wingX;
+      let wingY;
+      if (isTabletop) {
+        if (this.rig.shape === 'car') {
+          wingX = this.rig.width * 0.42;
+          wingY = this.rig.length * 0.36;
+        } else if (this.rig.shape === 'orb') {
+          wingX = this.rig.width * 0.44;
+          wingY = this.rig.length * 0.08;
+        } else {
+          wingX = this.rig.width * 0.48;
+          wingY = this.rig.length * 0.16;
+        }
+      } else if (this.rig.shape === 'car') {
+        wingX = 24;
+        wingY = 22;
+      } else if (this.rig.shape === 'orb') {
+        wingX = 27;
+        wingY = 4;
+      } else {
+        wingX = 35;
+        wingY = 8;
+      }
+
+      const rollPhase = p.rollTimer > 0 ? (1 - p.rollTimer / 0.62) * Math.PI * 2 : 0;
+      const rollCos = Math.cos(rollPhase);
+      const bankShrink = 1 - Math.abs(p.bank) * 0.22;
+      const span = wingX * bankShrink * rollCos;
+      const cosR = isTabletop ? Math.cos(-p.cameraRoll) : 1;
+      const sinR = isTabletop ? Math.sin(-p.cameraRoll) : 0;
+      const boost = this._visualBoost();
+      const intensity = clamp(0.45 + boost * 0.4 + Math.abs(p.bank) * 0.28 + this.breath * 0.35 + (p.rollTimer > 0 ? 0.35 : 0), 0.35, 1);
+
+      const pushTip = (list, ox, oy, dir) => {
+        const wx = px + ox * cosR - oy * sinR;
+        const wy = py + ox * sinR + oy * cosR;
+        list.push({
+          x: wx,
+          y: wy,
+          vx: dir * (10 + Math.abs(p.bank) * 14),
+          vy: 14,
+          life: maxLife,
+          maxLife,
+          strength: intensity
+        });
+        if (list.length > 28) list.shift();
+      };
+
+      pushTip(this.contrails.left, -span, wingY + p.bank * 4, -1);
+      pushTip(this.contrails.right, span, wingY - p.bank * 4, 1);
+    }
+
+    // Cloud-top altitude shadow + delicate mist streaks when skimming over volumetric cloud banks
+    _stepCloudInteraction(dt, px, py) {
+      const p = this.player;
+      const isTabletop = this.rig.mode === 'tabletop';
+      const arcadeScroll = isTabletop ? 0 : (p.cruiseSpeed + this.breath * 140) * dt;
+
+      if (this.cloudWisps) {
+        for (let i = this.cloudWisps.length - 1; i >= 0; i--) {
+          const w = this.cloudWisps[i];
+          w.x += w.vx * dt;
+          w.y += w.vy * dt + arcadeScroll;
+          w.life -= dt;
+          if (w.life <= 0) this.cloudWisps.splice(i, 1);
+        }
+      }
+
+      if (!this.scenery || typeof this.scenery.sampleCloudCover !== 'function') {
+        this._cloudCover.density = lerp(this._cloudCover.density, 0, 1 - Math.exp(-dt * 8));
+        return;
+      }
+
+      const W = this.width;
+      const H = this.height;
+      const anchorX = isTabletop ? W * 0.5 : p.screenX;
+      const anchorY = isTabletop ? H * this.rig.anchorY : p.screenY;
+      const sceneCamX = isTabletop ? px : W * 0.5 + (p.screenX - W * 0.5) * 0.18;
+      const sceneCamY = isTabletop ? py : p.worldY;
+      const corridorOff = ((this._laneCamX ?? sceneCamX) - sceneCamX) * LANE_PF;
+
+      const sample = this.scenery.sampleCloudCover({
+        W,
+        H,
+        screenX: anchorX,
+        screenY: anchorY,
+        anchorX: isTabletop ? anchorX : W * 0.5,
+        anchorY: isTabletop ? anchorY : H * 0.75,
+        scrollDist: -sceneCamY,
+        worldOffsetX: isTabletop ? sceneCamX : (sceneCamX - W * 0.5),
+        corridorOffset: corridorOff,
+        sky: this.getEffectiveSky(),
+        phase: this.phase,
+        calm: this._calmFactors()
+      });
+
+      const smoothK = 1 - Math.exp(-dt * 9);
+      this._cloudCover.density = lerp(this._cloudCover.density, sample.density, smoothK);
+      this._cloudCover.heightFactor = lerp(this._cloudCover.heightFactor, sample.heightFactor, smoothK);
+
+      this._cloudMistTimer = Math.max(0, (this._cloudMistTimer || 0) - dt);
+      if (this._cloudCover.density > 0.34 && this._cloudMistTimer <= 0 && this.cloudWisps && this.cloudWisps.length < 26) {
+        this._cloudMistTimer = 0.075;
+        const halfW = isTabletop ? this.rig.width * 0.46 : 34;
+        for (const side of [-1, 1]) {
+          const life = 0.34 + Math.random() * 0.2;
+          this.cloudWisps.push({
+            x: px + side * (halfW * (0.7 + Math.random() * 0.45)),
+            y: py + (Math.random() - 0.2) * 18,
+            vx: side * (46 + Math.random() * 48) - p.vx * 0.12,
+            vy: 42 + Math.random() * 44,
+            len: 22 + Math.random() * 24,
+            life,
+            maxLife: life,
+            alpha: clamp(this._cloudCover.density * 0.42, 0.1, 0.34)
+          });
+        }
+      }
+    }
+
     _emitRadarTelemetry(px, py) {
       const blips = [];
       const rangeX = this.width * 0.6;
@@ -3332,6 +3500,11 @@
         mode: this.rig.mode,
         pureCamera: this.rig.pureCamera,
         godMode: this.rig.godMode,
+        visualFilter: this.rig.visualFilter,
+        sky: this.getEffectiveSky(),
+        bank: Number((p.bank || 0).toFixed(3)),
+        speedRatio: Number(this._visualBoost().toFixed(2)),
+        rollActive: p.rollTimer > 0,
         gameOver: this.phase === 'gameover',
         blips
       });
@@ -3431,6 +3604,189 @@
       return cur;
     }
 
+    _getPixelBuffer(W, H) {
+      if (typeof document === 'undefined' || !document.createElement) return null;
+      const pxScale = 3;
+      const pw = Math.max(160, Math.round(W / pxScale));
+      const ph = Math.max(120, Math.round(H / pxScale));
+      if (!this._pixelBuffer) this._pixelBuffer = document.createElement('canvas');
+      if (this._pixelBuffer.width !== pw || this._pixelBuffer.height !== ph) {
+        this._pixelBuffer.width = pw;
+        this._pixelBuffer.height = ph;
+      }
+      return this._pixelBuffer;
+    }
+
+    // Pre-baked 4x4 ordered Bayer dither micro-pattern (single fillRect, near-zero cost)
+    _getDitherPattern(ctx) {
+      if (this._ditherPattern) return this._ditherPattern;
+      if (typeof document === 'undefined' || !document.createElement || !ctx.createPattern) return null;
+      const c = document.createElement('canvas');
+      c.width = 8;
+      c.height = 8;
+      const g = c.getContext('2d');
+      const bayer = [
+        [0, 8, 2, 10],
+        [12, 4, 14, 6],
+        [3, 11, 1, 9],
+        [15, 7, 13, 5]
+      ];
+      for (let y = 0; y < 4; y++) {
+        for (let x = 0; x < 4; x++) {
+          const v = bayer[y][x];
+          g.fillStyle = v < 6 ? 'rgba(8, 18, 28, 0.24)' : (v > 10 ? 'rgba(255, 248, 232, 0.14)' : 'rgba(0,0,0,0)');
+          g.fillRect(x * 2, y * 2, 2, 2);
+        }
+      }
+      this._ditherPattern = ctx.createPattern(c, 'repeat');
+      return this._ditherPattern;
+    }
+
+    // Pre-baked subtle warm analog grain tile for the 'film' filter
+    _getFilmPattern(ctx) {
+      if (this._filmPattern) return this._filmPattern;
+      if (typeof document === 'undefined' || !document.createElement || !ctx.createPattern) return null;
+      const c = document.createElement('canvas');
+      c.width = 96;
+      c.height = 96;
+      const g = c.getContext('2d');
+      for (let y = 0; y < 96; y += 2) {
+        for (let x = 0; x < 96; x += 2) {
+          const h = hash2D(x * 7 + 11, y * 13 + 5);
+          if (h > 0.68) {
+            g.fillStyle = `rgba(255, 245, 224, ${((h - 0.68) * 0.32).toFixed(3)})`;
+            g.fillRect(x, y, 2, 2);
+          } else if (h < 0.28) {
+            g.fillStyle = `rgba(18, 24, 30, ${((0.28 - h) * 0.32).toFixed(3)})`;
+            g.fillRect(x, y, 2, 2);
+          }
+        }
+      }
+      this._filmPattern = ctx.createPattern(c, 'repeat');
+      return this._filmPattern;
+    }
+
+    // Dual wingtip condensation ribbons — curved trails that make top-down flight feel vividly 3D
+    _renderContrails(ctx, skyMode) {
+      if (!this.contrails) return;
+      const rgb = skyMode === 'sunset'
+        ? '255, 236, 206'
+        : (skyMode === 'night' ? '202, 240, 255' : '252, 249, 240');
+      const calmA = this.phase === 'playing' ? 0.56 : 0.42;
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const side of ['left', 'right']) {
+        const list = this.contrails[side];
+        if (!list || list.length < 2) continue;
+        for (let i = 1; i < list.length; i++) {
+          const prev = list[i - 1];
+          const cur = list[i];
+          const age = clamp(cur.life / Math.max(0.05, cur.maxLife), 0, 1);
+          const alpha = age * age * calmA * (cur.strength || 0.7);
+          if (alpha <= 0.015) continue;
+          const w = 0.7 + age * 2.1;
+          ctx.strokeStyle = `rgba(${rgb}, ${alpha.toFixed(3)})`;
+          ctx.lineWidth = w;
+          ctx.beginPath();
+          ctx.moveTo(prev.x, prev.y);
+          ctx.lineTo(cur.x, cur.y);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Soft cast shadow on volumetric cloud tops directly beneath the craft
+    _renderCloudCastShadow(ctx, ax, ay, skyMode) {
+      const cover = this._cloudCover;
+      if (!cover || cover.density <= 0.14 || this.phase === 'gameover') return;
+      const p = this.player;
+      const isTabletop = this.rig.mode === 'tabletop';
+      const hf = cover.heightFactor || 0.85;
+      const offX = (18 + hf * 16) - p.bank * 14;
+      const offY = (20 + hf * 18) + this._visualBoost() * 8;
+      const rw = isTabletop ? this.rig.width : 72;
+      const rl = isTabletop ? this.rig.length : 84;
+      const alpha = clamp(cover.density * (skyMode === 'night' ? 0.22 : 0.30), 0, 0.32);
+
+      ctx.save();
+      ctx.translate(ax + offX, ay + offY);
+      ctx.scale((1.06 - Math.abs(p.bank) * 0.12) * (0.94 + hf * 0.12), 0.94 + hf * 0.12);
+      this._traceRigShapePath(ctx, rw, rl, this.rig.shape);
+      ctx.fillStyle = skyMode === 'sunset'
+        ? `rgba(48, 22, 34, ${alpha.toFixed(3)})`
+        : `rgba(11, 34, 48, ${alpha.toFixed(3)})`;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Soft elongated mist ribbons whipped outward when skimming across thick clouds (never dot-shaped)
+    _renderCloudWisps(ctx, skyMode) {
+      if (!this.cloudWisps || this.cloudWisps.length === 0) return;
+      const rgb = skyMode === 'sunset'
+        ? '255, 226, 194'
+        : (skyMode === 'night' ? '186, 224, 248' : '255, 253, 246');
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (const w of this.cloudWisps) {
+        const t = clamp(w.life / Math.max(0.05, w.maxLife), 0, 1);
+        const a = Math.sin(t * Math.PI) * w.alpha;
+        if (a <= 0.015) continue;
+        const spd = Math.hypot(w.vx, w.vy) || 1;
+        const ux = w.vx / spd;
+        const uy = w.vy / spd;
+        ctx.strokeStyle = `rgba(${rgb}, ${a.toFixed(3)})`;
+        ctx.lineWidth = 1.6 + (1 - t) * 2.2;
+        ctx.beginPath();
+        ctx.moveTo(w.x - ux * w.len * 0.5, w.y - uy * w.len * 0.5);
+        ctx.lineTo(w.x + ux * w.len * 0.5, w.y + uy * w.len * 0.5);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    _applyPixelDither(ctx, W, H) {
+      const pat = this._getDitherPattern(ctx);
+      if (!pat) return;
+      ctx.save();
+      ctx.globalAlpha = 0.42;
+      ctx.fillStyle = pat;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    _applyFilmGrade(ctx, W, H, skyMode) {
+      ctx.save();
+      // Subtle warm vintage tint
+      ctx.fillStyle = skyMode === 'sunset'
+        ? 'rgba(255, 182, 128, 0.10)'
+        : (skyMode === 'night' ? 'rgba(182, 226, 210, 0.06)' : 'rgba(255, 214, 152, 0.09)');
+      ctx.fillRect(0, 0, W, H);
+
+      // Gentle 35mm optical vignette
+      const rOuter = Math.hypot(W, H) * 0.58;
+      const vg = ctx.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.28, W * 0.5, H * 0.5, rOuter);
+      vg.addColorStop(0, 'rgba(16, 14, 12, 0)');
+      vg.addColorStop(1, 'rgba(14, 12, 10, 0.28)');
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Subtle analog grain tile shifted gently at 12fps to stay calm yet alive
+      const pat = this._getFilmPattern(ctx);
+      if (pat) {
+        const tick = Math.floor(this.time * 12);
+        const gx = (tick * 19) % 48;
+        const gy = (tick * 31) % 48;
+        ctx.globalAlpha = 0.24;
+        ctx.translate(-gx, -gy);
+        ctx.fillStyle = pat;
+        ctx.fillRect(gx, gy, W + 48, H + 48);
+      }
+      ctx.restore();
+    }
+
     render() {
       const ctx = this.ctx;
       const W = this.width;
@@ -3444,7 +3800,7 @@
         ctx.translate(sx, sy);
       }
 
-      // 1 & 2. Next-Gen 2.5D Scenery Renderer (with graceful fallback to legacy renderer)
+      // 1 & 2. Next-Gen 2.5D Scenery Renderer (with optional lightweight retro pixel/film filter easter egg)
       const skyMode = this.getEffectiveSky();
       const calm = this._calmFactors();
       const px = this._playerWorldX();
@@ -3456,15 +3812,25 @@
       const sceneCamY = tabletopCam ? py : this.player.worldY;
       this._lane = this._laneFrame(W, H, sceneCamX, sceneCamY, tabletopCam ? anchorX : W * 0.5, tabletopCam ? anchorY : H * 0.5);
 
+      const filter = this.rig.visualFilter || 'normal';
+      const pixelBuf = (filter === 'pixel' && !this.calibDrawerOpen) ? this._getPixelBuffer(W, H) : null;
+      const pctx = pixelBuf ? pixelBuf.getContext('2d') : null;
+      const worldCtx = pctx || ctx;
+      if (pctx) {
+        pctx.clearRect(0, 0, pixelBuf.width, pixelBuf.height);
+        pctx.save();
+        pctx.scale(pixelBuf.width / W, pixelBuf.height / H);
+      }
+
       const art = this.departureArt;
       if (this.phase === 'title' && !this.calibDrawerOpen && this.rig.skyTheme === 'auto' && art?.complete && art.naturalWidth) {
         const scale = Math.max(W / art.naturalWidth, H / art.naturalHeight);
         const width = art.naturalWidth * scale;
         const height = art.naturalHeight * scale;
-        ctx.drawImage(art, (W - width) * 0.78, (H - height) * 0.38, width, height);
+        worldCtx.drawImage(art, (W - width) * 0.78, (H - height) * 0.38, width, height);
       } else if (this.scenery) {
         const corridorOff = ((this._laneCamX ?? sceneCamX) - sceneCamX) * LANE_PF;
-        this.scenery.render(ctx, {
+        this.scenery.render(worldCtx, {
           W,
           H,
           sky: skyMode,
@@ -3482,7 +3848,7 @@
           bossEnraged: Boolean(this.boss && this.boss.enraged)
         });
       } else {
-        const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+        const skyGrad = worldCtx.createLinearGradient(0, 0, 0, H);
         if (skyMode === 'day') {
           skyGrad.addColorStop(0, '#1e88e5');
           skyGrad.addColorStop(0.55, '#38bdf8');
@@ -3496,46 +3862,53 @@
           skyGrad.addColorStop(0.55, '#0d2847');
           skyGrad.addColorStop(1, '#14385c');
         }
-        ctx.fillStyle = skyGrad;
-        ctx.fillRect(-30, -30, W + 60, H + 60);
-        this._renderSkyAtmosphere(ctx, W, H, skyMode, calm);
-        ctx.save();
+        worldCtx.fillStyle = skyGrad;
+        worldCtx.fillRect(-30, -30, W + 60, H + 60);
+        this._renderSkyAtmosphere(worldCtx, W, H, skyMode, calm);
+        worldCtx.save();
         if (tabletopCam) {
-          ctx.translate(anchorX, anchorY);
-          ctx.rotate(this.player.cameraRoll);
-          ctx.translate(-px, -py);
+          worldCtx.translate(anchorX, anchorY);
+          worldCtx.rotate(this.player.cameraRoll);
+          worldCtx.translate(-px, -py);
         } else {
-          ctx.translate(W * 0.5 - sceneCamX, H * 0.5 - sceneCamY);
+          worldCtx.translate(W * 0.5 - sceneCamX, H * 0.5 - sceneCamY);
         }
-        this._renderParallaxWorld(ctx, sceneCamX, sceneCamY, W, H, skyMode, calm);
-        ctx.restore();
-        this._renderLaneWalls(ctx, skyMode, calm);
+        this._renderParallaxWorld(worldCtx, sceneCamX, sceneCamY, W, H, skyMode, calm);
+        worldCtx.restore();
+        this._renderLaneWalls(worldCtx, skyMode, calm);
         if (calm.veil > 0.005) {
-          ctx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
-          ctx.fillRect(-30, -30, W + 60, H + 60);
+          worldCtx.fillStyle = `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${calm.veil.toFixed(3)})`;
+          worldCtx.fillRect(-30, -30, W + 60, H + 60);
         }
       }
 
-      const applyCam = () => {
+      const applyCam = (targetCtx) => {
         if (this.rig.mode === 'tabletop') {
-          ctx.translate(anchorX, anchorY);
-          ctx.rotate(this.player.cameraRoll);
-          ctx.translate(-px, -py);
+          targetCtx.translate(anchorX, anchorY);
+          targetCtx.rotate(this.player.cameraRoll);
+          targetCtx.translate(-px, -py);
         }
       };
 
-      // 3. Mid layer: pickups, XP gems & active skill VFX, enemies, explosions, then our own shots
+      // 2.5 Soft aircraft shadow projected onto clouds directly below
+      if (this.phase === 'playing') {
+        this._renderCloudCastShadow(worldCtx, anchorX, anchorY, skyMode);
+      }
+
+      // 3. Mid layer: wingtip contrails, cloud-skimming wisps, pickups, XP gems, enemies, explosions & our shots
       if (this.phase !== 'title') {
-        ctx.save();
-        applyCam();
-        if (this.phase === 'playing') this._renderHazards(ctx, py, H);
-        this._renderPowerups(ctx);
-        if (this.roguelite) this.roguelite.renderWorld(ctx, this.time, px, py);
-        this._renderEnemies(ctx, py);
-        this._renderParticlesAndWaves(ctx);
-        this._renderPlayerBullets(ctx);
-        this._renderRailBeam(ctx, px, py, H);
-        ctx.restore();
+        worldCtx.save();
+        applyCam(worldCtx);
+        this._renderContrails(worldCtx, skyMode);
+        this._renderCloudWisps(worldCtx, skyMode);
+        if (this.phase === 'playing') this._renderHazards(worldCtx, py, H);
+        this._renderPowerups(worldCtx);
+        if (this.roguelite) this.roguelite.renderWorld(worldCtx, this.time, px, py);
+        this._renderEnemies(worldCtx, py);
+        this._renderParticlesAndWaves(worldCtx);
+        this._renderPlayerBullets(worldCtx);
+        this._renderRailBeam(worldCtx, px, py, H);
+        worldCtx.restore();
       }
 
       // 4. Player Craft / Tabletop Helipad Layer (visible on Title, Playing, or whenever Calibrating!)
@@ -3545,26 +3918,38 @@
           const ax = anchorX;
           const ay = anchorY;
           const rr = this.rig.mode === 'tabletop' ? Math.max(this.rig.width, this.rig.length) * 0.95 : 70;
-          const pocket = ctx.createRadialGradient(ax, ay, rr * 0.2, ax, ay, rr);
+          const pocket = worldCtx.createRadialGradient(ax, ay, rr * 0.2, ax, ay, rr);
           pocket.addColorStop(0, `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, ${(0.12 + calm.veil * 0.4).toFixed(3)})`);
           pocket.addColorStop(1, `rgba(${VEIL_RGB[skyMode] || VEIL_RGB.day}, 0)`);
-          ctx.fillStyle = pocket;
-          ctx.fillRect(ax - rr, ay - rr, rr * 2, rr * 2);
+          worldCtx.fillStyle = pocket;
+          worldCtx.fillRect(ax - rr, ay - rr, rr * 2, rr * 2);
         }
         if (this.rig.mode === 'tabletop') {
-          this._renderTabletopRig(ctx, W * 0.5, H * this.rig.anchorY);
+          this._renderTabletopRig(worldCtx, W * 0.5, H * this.rig.anchorY);
         } else {
-          this._renderVirtualFighter(ctx, this.player.screenX, this.player.screenY);
+          this._renderVirtualFighter(worldCtx, this.player.screenX, this.player.screenY);
         }
       }
 
       // Foreground gust streaks stay below the danger layer
-      this._renderForegroundWind(ctx, W, H);
+      this._renderForegroundWind(worldCtx, W, H);
 
-      // 5. Top layer: enemy bullets above everything (craft, flames, explosions), then floating text
+      // Blit pixelated world buffer crisply to the HD main canvas, then keep enemy shots & HUD razor-sharp!
+      if (pctx) {
+        pctx.restore();
+        const prevSmooth = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(pixelBuf, 0, 0, W, H);
+        ctx.imageSmoothingEnabled = prevSmooth;
+        this._applyPixelDither(ctx, W, H);
+      } else if (filter === 'film') {
+        this._applyFilmGrade(ctx, W, H, skyMode);
+      }
+
+      // 5. Top layer (always HD): enemy bullets above everything (craft, flames, explosions), then floating text
       if (this.phase !== 'title') {
         ctx.save();
-        applyCam();
+        applyCam(ctx);
         this._renderEnemyBullets(ctx);
         this._renderFloatingTexts(ctx);
         ctx.restore();
@@ -3590,11 +3975,11 @@
         ctx.fillRect(0, 0, W, H);
       }
 
-      // 6. HUD & Cinematic Story Chapter Banner (only when playing & not pureCamera)
+      // 7. Frameless Aviation Telemetry HUD & Cinematic Story Chapter Banner (only when playing & not pureCamera)
       if (!this.rig.pureCamera && this.phase !== 'title') {
         this._renderMinimalHUD(ctx, W, H);
         if (this.roguelite && this.phase === 'playing' && !this.boss) {
-          this.roguelite.renderHudBar(ctx, W, H, this.hudTop + this._hudPanelH() - 18, this._hudAlpha ?? 1, this._hudPanelW(W));
+          this.roguelite.renderHudBar(ctx, W, H, this.hudTop + this._hudPanelH() - 15, this._hudAlpha ?? 1, this._hudPanelW(W));
         }
         this._renderBossBar(ctx, W);
         this._renderStoryBanner(ctx, W);
@@ -4935,50 +5320,50 @@
       const boxH = sb.victory ? 64 : 54;
       const boxX = (W - boxW) * 0.5;
       const boxY = (this.boss ? this._bossBarY(W) + 36 : this._bannerBaseY(W)) + slide;
-      const accent = sb.alert ? '#f87171' : (sb.victory ? '#fde047' : '#38bdf8');
+      const accent = sb.alert ? '#e86b49' : (sb.victory ? '#ffbe69' : '#93ded0');
 
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.66)';
-      this._roundRectPath(ctx, boxX, boxY, boxW, boxH, 14);
+      ctx.fillStyle = 'rgba(9, 32, 38, 0.78)';
+      this._roundRectPath(ctx, boxX, boxY, boxW, boxH, 10);
       ctx.fill();
       ctx.strokeStyle = accent;
-      ctx.globalAlpha = alpha * (sb.alert ? 0.55 + 0.45 * Math.abs(Math.sin(this.time * 8)) : 0.7);
-      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = alpha * (sb.alert ? 0.55 + 0.45 * Math.abs(Math.sin(this.time * 8)) : 0.65);
+      ctx.lineWidth = 1.25;
       ctx.stroke();
       ctx.globalAlpha = alpha;
       ctx.fillStyle = accent;
       ctx.fillRect(boxX + 18, boxY + boxH - 3, (boxW - 36) * clamp(sb.timer / sb.maxTimer, 0, 1), 2);
 
-      ctx.fillStyle = sb.alert ? '#fecaca' : '#fde047';
+      ctx.fillStyle = sb.alert ? '#ffc7b7' : '#ffbe69';
       ctx.font = `800 ${sb.victory ? 17 : 15}px system-ui, -apple-system, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(sb.title, W * 0.5, boxY + (sb.victory ? 26 : 23), boxW - 24);
 
-      ctx.fillStyle = '#f1f5f9';
+      ctx.fillStyle = '#faf3e1';
       ctx.font = '500 12px system-ui, -apple-system, sans-serif';
       ctx.fillText(sb.subtitle, W * 0.5, boxY + (sb.victory ? 48 : 42), boxW - 24);
       ctx.restore();
     }
 
     _hudPanelW(W) {
-      return W < 560 ? 184 : 204;
+      return W < 560 ? 174 : 210;
     }
 
     _hudPanelH() {
-      const rows = (this.starRoute || this.starMagnet > 0 || this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 84 : 68;
-      return rows + (this.roguelite ? 18 : 0);
+      const extraRow = (this.starRoute || this.starMagnet > 0 || this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999) ? 16 : 0;
+      return 54 + extraRow + (this.roguelite ? 18 : 0);
     }
 
-    // Boss bar and banners sit beside the score panel on wide screens, beneath it on narrow ones
+    // Boss bar and banners sit beside the telemetry clusters on wide screens, beneath them on narrow ones
     _bossBarY(W) {
-      const barW = Math.min(480, W - 40);
-      const clearsPanel = (W - barW) * 0.5 - 10 > 12 + this._hudPanelW(W) + 8;
-      return this.hudTop + (clearsPanel ? 18 : this._hudPanelH() + 26);
+      const barW = Math.min(460, W - 40);
+      const clearsSides = (W - barW) * 0.5 - 12 > Math.max(14 + this._hudPanelW(W) + 8, 210);
+      return this.hudTop + (clearsSides ? 16 : this._hudPanelH() + 24);
     }
 
     _bannerBaseY(W) {
       const boxW = Math.min(460, W - 32);
-      const clearsPanel = (W - boxW) * 0.5 > 12 + this._hudPanelW(W) + 8;
-      return this.hudTop + (clearsPanel ? 4 : this._hudPanelH() + 10);
+      const clearsSides = (W - boxW) * 0.5 > Math.max(14 + this._hudPanelW(W) + 8, 210);
+      return this.hudTop + (clearsSides ? 4 : this._hudPanelH() + 10);
     }
 
     _renderBossBar(ctx, W) {
@@ -4986,200 +5371,286 @@
       if (!b || this.phase !== 'playing') return;
       const def = BOSS_DEFS[b.bossKind] || BOSS_DEFS.fog;
       const intro = clamp(1 - this.bossIntro / 2.6 + 0.25, 0, 1);
-      const barW = Math.min(480, W - 40);
+      const barW = Math.min(460, W - 40);
       const x = (W - barW) * 0.5;
       const y = this._bossBarY(W);
       ctx.save();
-      ctx.fillStyle = 'rgba(7, 20, 38, 0.72)';
-      this._roundRectPath(ctx, x - 10, y - 18, barW + 20, 36, 10);
-      ctx.fill();
-      ctx.font = '800 12px system-ui, -apple-system, sans-serif';
+      // Sleek frameless aviation boss bar with crisp corner ticks
+      ctx.fillStyle = 'rgba(7, 25, 31, 0.58)';
+      ctx.fillRect(x - 10, y - 18, barW + 20, 32);
+      ctx.strokeStyle = b.enraged ? 'rgba(248, 113, 113, 0.65)' : 'rgba(255, 190, 105, 0.55)';
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.moveTo(x - 10, y - 10); ctx.lineTo(x - 10, y - 18); ctx.lineTo(x - 2, y - 18);
+      ctx.moveTo(x + barW + 2, y - 18); ctx.lineTo(x + barW + 10, y - 18); ctx.lineTo(x + barW + 10, y - 10);
+      ctx.moveTo(x - 10, y + 6); ctx.lineTo(x - 10, y + 14); ctx.lineTo(x - 2, y + 14);
+      ctx.moveTo(x + barW + 2, y + 14); ctx.lineTo(x + barW + 10, y + 14); ctx.lineTo(x + barW + 10, y + 6);
+      ctx.stroke();
+
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+      ctx.shadowBlur = 4;
+      ctx.font = '700 11.5px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillStyle = b.enraged ? '#fca5a5' : def.accent;
+      ctx.fillStyle = b.enraged ? '#fca5a5' : '#faf3e1';
       ctx.fillText(`${b.name}${b.enraged ? ' · 狂暴' : ''}`, x, y - 4);
       ctx.textAlign = 'right';
-      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '700 11px "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.fillStyle = b.enraged ? '#fca5a5' : '#ffbe69';
       ctx.fillText(`${Math.max(0, Math.ceil((b.hp / b.maxHp) * 100))}%`, x + barW, y - 4);
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.fillRect(x, y + 3, barW, 8);
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(7, 25, 31, 0.82)';
+      ctx.fillRect(x, y + 3, barW, 6);
       const frac = clamp(b.hp / b.maxHp, 0, 1) * intro;
       const g = ctx.createLinearGradient(x, 0, x + barW, 0);
-      g.addColorStop(0, b.enraged ? '#ef4444' : def.trim);
-      g.addColorStop(1, b.enraged ? '#f97316' : def.core);
+      g.addColorStop(0, b.enraged ? '#e86b49' : (def.trim || '#93ded0'));
+      g.addColorStop(1, b.enraged ? '#ffbe69' : (def.core || '#ffbe69'));
       ctx.fillStyle = g;
-      ctx.fillRect(x, y + 3, barW * frac, 8);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.fillRect(x + barW * 0.5 - 1, y + 1, 2, 12);
+      ctx.fillRect(x, y + 3, barW * frac, 6);
+      ctx.fillStyle = 'rgba(250, 243, 225, 0.78)';
+      ctx.fillRect(x + barW * 0.5 - 0.75, y + 1, 1.5, 10);
       ctx.restore();
     }
 
-    // Compact, see-through HUD: score, hull, loadout and how far the chapter has come.
-    // It fades out whenever the craft or a pickup flies underneath, so it never hides the action.
+    // Frameless aviation telemetry HUD split cleanly across top corners so the sky stays open.
+    // Each corner fades gently whenever the player craft flies underneath it.
     _renderMinimalHUD(ctx, W, H) {
       const p = this.player;
       const ch = this.getCurrentChapter();
       const panelW = this._hudPanelW(W);
       const panelH = this._hudPanelH();
-      const x0 = 12;
+      const x0 = 14;
       const y0 = this.hudTop;
+      const monoFont = '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
+      const sansFont = 'system-ui, -apple-system, "PingFang SC", sans-serif';
 
       const sx = this.rig.mode === 'tabletop' ? W * 0.5 : p.screenX;
       const sy = this.rig.mode === 'tabletop' ? H * this.rig.anchorY : p.screenY;
-      const under = sx < x0 + panelW + 50 && sy < y0 + panelH + 60;
-      this._hudAlpha = lerp(this._hudAlpha ?? 1, under ? 0.28 : 1, 0.15);
+      const underLeft = sx < x0 + panelW + 48 && sy < y0 + panelH + 56;
+      const underRight = sx > W - 210 && sy < y0 + 96;
+      this._hudAlpha = lerp(this._hudAlpha ?? 1, underLeft ? 0.26 : 1, 0.15);
+      this._hudRightAlpha = lerp(this._hudRightAlpha ?? 1, underRight ? 0.26 : 1, 0.15);
 
+      const L = x0 + 6;
+      const R = x0 + panelW;
+
+      // ===== TOP-LEFT: Frameless Hull, Loadout & Chapter Telemetry =====
       ctx.save();
       ctx.globalAlpha = this._hudAlpha;
-      ctx.fillStyle = 'rgba(8, 36, 42, 0.84)';
-      this._roundRectPath(ctx, x0, y0, panelW, panelH, 8);
-      ctx.fill();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-      ctx.shadowBlur = 3;
 
-      const L = x0 + 10;
-      const R = x0 + panelW - 10;
-      // Row 1: score + distance
-      ctx.textAlign = 'left';
-      ctx.font = '800 14px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillText(String(Math.floor(this.score)).padStart(7, '0'), L, y0 + 18);
-      ctx.textAlign = 'right';
-      ctx.font = '600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(`${this.distanceKm.toFixed(1)} km`, R, y0 + 17);
+      // Delicate aviation left-edge calibration hairline + micro brackets (no heavy box)
+      const bracketH = panelH - (this.roguelite && !this.boss ? 2 : 6);
+      ctx.strokeStyle = 'rgba(250, 243, 225, 0.36)';
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.moveTo(x0 + 5, y0 + 1);
+      ctx.lineTo(x0, y0 + 1);
+      ctx.lineTo(x0, y0 + bracketH);
+      ctx.lineTo(x0 + 5, y0 + bracketH);
+      ctx.stroke();
 
-      // Row 2: hull bar + shield pips
-      ctx.shadowBlur = 0;
-      const pipsW = 26;
-      const barX = L + 29;
-      const barW = R - pipsW - barX;
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+      ctx.shadowBlur = 4;
+
+      // Row 1: Hull bar + shield pips + percentage
       const frac = clamp(p.hp / p.maxHp, 0, 1);
+      const hpPct = Math.max(0, Math.ceil(frac * 100));
+      const pipsW = 24;
+      const pctW = 30;
+      const barX = L + 26;
+      const barW = Math.max(46, R - pipsW - pctW - barX);
+
       ctx.textAlign = 'left';
-      ctx.font = '650 10px system-ui, sans-serif';
-      ctx.fillStyle = '#d7e7df';
-      ctx.fillText('机体', L, y0 + 32);
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-      this._roundRectPath(ctx, barX, y0 + 25, barW, 6, 3);
-      ctx.fill();
-      ctx.fillStyle = this.rig.godMode ? '#fde047' : (frac > 0.6 ? '#38bdf8' : (frac > 0.3 ? '#facc15' : '#ef4444'));
+      ctx.font = `700 10px ${sansFont}`;
+      ctx.fillStyle = '#d2e1dc';
+      ctx.fillText('机体', L, y0 + 12);
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(7, 25, 31, 0.62)';
+      ctx.fillRect(barX, y0 + 6, barW, 5);
+      ctx.strokeStyle = 'rgba(250, 243, 225, 0.24)';
+      ctx.lineWidth = 0.75;
+      ctx.strokeRect(barX - 0.5, y0 + 5.5, barW + 1, 6);
+
+      ctx.fillStyle = this.rig.godMode
+        ? '#ffbe69'
+        : (frac > 0.6 ? '#93ded0' : (frac > 0.3 ? '#ffbe69' : '#e86b49'));
       if (frac > 0) {
-        this._roundRectPath(ctx, barX, y0 + 25, Math.max(2, barW * frac), 6, 3);
-        ctx.fill();
+        ctx.fillRect(barX, y0 + 6, Math.max(2, barW * frac), 5);
       }
+
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+      ctx.shadowBlur = 3;
+      ctx.textAlign = 'right';
+      ctx.font = `700 10px ${monoFont}`;
+      ctx.fillStyle = frac <= 0.3 && !this.rig.godMode ? '#fca5a5' : '#faf3e1';
+      ctx.fillText(this.rig.godMode ? '护航' : `${hpPct}%`, R - pipsW - 2, y0 + 12);
+
+      ctx.shadowBlur = 0;
       for (let k = 0; k < 2; k++) {
-        ctx.strokeStyle = '#67e8f9';
-        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = '#93ded0';
+        ctx.lineWidth = 1.3;
         ctx.beginPath();
-        ctx.arc(R - pipsW + 7 + k * 12, y0 + 28, 4, 0, Math.PI * 2);
+        ctx.arc(R - pipsW + 7 + k * 11, y0 + 8.5, 3.6, 0, Math.PI * 2);
         if (k < p.shield) {
-          ctx.fillStyle = '#67e8f9';
+          ctx.fillStyle = '#93ded0';
           ctx.fill();
         }
         ctx.stroke();
       }
 
-      // Row 3: firepower pips (dim beyond this act's ceiling), wingmen, nukes, gust readiness
-      const ry = y0 + 46;
+      // Row 2: Firepower segments, wingmen, nukes, gust readiness
+      const ry = y0 + 28;
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+      ctx.shadowBlur = 3;
       ctx.textAlign = 'left';
-      ctx.font = '800 11px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#38bdf8';
+      ctx.font = `700 10px ${monoFont}`;
+      ctx.fillStyle = '#ffbe69';
       ctx.fillText('P', L, ry);
-      for (let k = 0; k < MAX_WEAPON_LV; k++) {
-        ctx.fillStyle = k < p.weaponLv ? '#fde047' : (k < this.weaponCap ? 'rgba(226, 232, 240, 0.4)' : 'rgba(148, 163, 184, 0.14)');
-        ctx.fillRect(L + 11 + k * 7, ry - 8, 5, 9);
-      }
-      ctx.font = '700 11px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = p.droneCount > 0 ? '#6ee7b7' : '#64748b';
-      ctx.fillText(`僚${p.droneCount}`, L + 54, ry);
-      ctx.fillStyle = p.nukes > 0 ? '#fb923c' : '#64748b';
-      ctx.fillText(`核${p.nukes}`, L + 81, ry);
-      const gustPct = p.gustCooldown <= 0 ? 1 : 1 - p.gustCooldown / p.gustMaxCooldown;
-      const gx = L + 119;
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(gx, ry - 4, 6, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = gustPct >= 1 ? '#a5f3fc' : '#64748b';
-      ctx.beginPath();
-      ctx.arc(gx, ry - 4, 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * gustPct);
-      ctx.stroke();
-      ctx.fillStyle = gustPct >= 1 ? '#a5f3fc' : '#94a3b8';
-      ctx.fillText(gustPct >= 1 ? '顺风' : '充能', gx + 10, ry);
 
-      // Row 4: chapter progress towards the blockade (or tutorial / boss state)
-      const py4 = y0 + 61;
-      ctx.font = '700 10px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#cbd5e1';
+      ctx.shadowBlur = 0;
+      for (let k = 0; k < MAX_WEAPON_LV; k++) {
+        ctx.fillStyle = k < p.weaponLv
+          ? '#ffbe69'
+          : (k < this.weaponCap ? 'rgba(250, 243, 225, 0.34)' : 'rgba(148, 163, 184, 0.16)');
+        ctx.fillRect(L + 10 + k * 6.5, ry - 7.5, 4.5, 8);
+      }
+
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+      ctx.shadowBlur = 3;
+      ctx.font = `700 10.5px ${sansFont}`;
+      ctx.fillStyle = p.droneCount > 0 ? '#93ded0' : 'rgba(210, 225, 220, 0.45)';
+      ctx.fillText(`僚${p.droneCount}`, L + 48, ry);
+      ctx.fillStyle = p.nukes > 0 ? '#ffbe69' : 'rgba(210, 225, 220, 0.45)';
+      ctx.fillText(`核${p.nukes}`, L + 74, ry);
+
+      const gustPct = p.gustCooldown <= 0 ? 1 : 1 - p.gustCooldown / p.gustMaxCooldown;
+      const gx = L + 109;
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(250, 243, 225, 0.24)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(gx, ry - 3.5, 5.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = gustPct >= 1 ? '#93ded0' : '#85a29e';
+      ctx.beginPath();
+      ctx.arc(gx, ry - 3.5, 5.4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * gustPct);
+      ctx.stroke();
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+      ctx.shadowBlur = 3;
+      ctx.fillStyle = gustPct >= 1 ? '#faf3e1' : '#b3cbc8';
+      ctx.fillText(gustPct >= 1 ? '顺风' : '充能', gx + 9, ry);
+
+      // Row 3: Chapter progress towards the blockade (or tutorial / boss state)
+      const py4 = y0 + 44;
+      ctx.font = `700 10px ${sansFont}`;
+      ctx.fillStyle = '#d2e1dc';
       const roman = ['Ⅰ', 'Ⅱ', 'Ⅲ'][ch.idx] || '';
       const tag = ch.loop > 0 ? `∞${ch.loop + 1}·${roman}` : roman;
       if (this.tutorial) {
-        ctx.fillStyle = '#fde68a';
+        ctx.fillStyle = '#ffbe69';
         ctx.fillText('🎓 新手引导中', L, py4);
       } else if (this.boss) {
         ctx.fillStyle = '#fca5a5';
         ctx.fillText(`${tag} 封锁线交战中`, L, py4);
       } else {
         ctx.fillText(tag, L, py4);
-        const bx = L + 26;
-        const bw = panelW - 20 - 26 - 14;
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
-        ctx.fillRect(bx, py4 - 5, bw, 3);
-        ctx.fillStyle = '#fbbf24';
-        ctx.fillRect(bx, py4 - 5, bw * this.chapterProgress, 3);
-        ctx.fillStyle = 'rgba(253, 230, 138, 0.9)';
-        ctx.fillRect(bx + bw * 0.5 - 1, py4 - 7, 2, 7); // supply drop marker
+        const bx = L + 22;
+        const bw = Math.max(48, R - bx - 14);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(7, 25, 31, 0.62)';
+        ctx.fillRect(bx, py4 - 4.5, bw, 3);
+        ctx.fillStyle = '#ffbe69';
+        ctx.fillRect(bx, py4 - 4.5, bw * this.chapterProgress, 3);
+        ctx.fillStyle = 'rgba(250, 243, 225, 0.88)';
+        ctx.fillRect(bx + bw * 0.5 - 0.75, py4 - 6.5, 1.5, 7); // supply drop marker
+        ctx.shadowColor = 'rgba(4, 16, 22, 0.85)';
+        ctx.shadowBlur = 3;
         ctx.textAlign = 'right';
         ctx.fillStyle = '#fca5a5';
         ctx.fillText('☠', R, py4);
       }
 
-      // Row 5 (only while active): medal chain and lung gauge
-      if (panelH - (this.roguelite ? 18 : 0) > 70) {
-        const r5 = y0 + 77;
+      // Row 4 (only while active): star route / medal chain and lung gauge
+      const hasExtraRow = this.starRoute || this.starMagnet > 0 || this.medalValue > 100 || this.breath > 0.1 || this.lungs < 0.999;
+      if (hasExtraRow) {
+        const r5 = y0 + 59;
         ctx.textAlign = 'left';
-        ctx.font = '700 10px system-ui, -apple-system, sans-serif';
+        ctx.font = `700 10px ${sansFont}`;
         if (this.starRoute || this.starMagnet > 0) {
-          ctx.fillStyle = '#a5f3fc';
+          ctx.fillStyle = '#93ded0';
           ctx.fillText(this.starRoute ? `✦ 星线 ${this.starRoute.collected}/${STAR_ROUTE.count}` : `吸附 ${Math.ceil(this.starMagnet)}s`, L, r5);
         } else if (this.medalValue > 100) {
-          ctx.fillStyle = '#facc15';
+          ctx.fillStyle = '#ffbe69';
           ctx.fillText(`★${this.medalValue}`, L, r5);
         }
         if (this.breath > 0.1 || this.lungs < 0.999) {
-          const lx = L + 62;
-          ctx.fillStyle = this.lungsExhausted ? '#94a3b8' : '#a5f3fc';
+          const lx = L + 60;
+          ctx.fillStyle = this.lungsExhausted ? '#94a3b8' : '#93ded0';
           ctx.fillText(this.lungsExhausted ? '换气中' : '肺活量', lx, r5);
-          const lw = R - (lx + 40);
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-          ctx.fillRect(lx + 40, r5 - 6, lw, 4);
-          ctx.fillStyle = this.lungsExhausted ? '#64748b' : '#67e8f9';
-          ctx.fillRect(lx + 40, r5 - 6, lw * clamp(this.lungs, 0, 1), 4);
+          const lw = Math.max(24, R - (lx + 38));
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(7, 25, 31, 0.65)';
+          ctx.fillRect(lx + 38, r5 - 5.5, lw, 3.5);
+          ctx.fillStyle = this.lungsExhausted ? '#64748b' : '#93ded0';
+          ctx.fillRect(lx + 38, r5 - 5.5, lw * clamp(this.lungs, 0, 1), 3.5);
         }
       }
       ctx.restore();
 
-      // Combo: small, text-only, top-right below the pause button
+      // ===== TOP-RIGHT: Frameless Aviation Score, Dynamic Heading & Distance =====
+      ctx.save();
+      ctx.globalAlpha = this._hudRightAlpha;
+      const wide = W >= 460;
+      const rx = W - (wide ? 62 : 56);
+      const rightY = y0;
+
+      ctx.shadowColor = 'rgba(4, 16, 22, 0.88)';
+      ctx.shadowBlur = 4;
+      ctx.textAlign = 'right';
+      ctx.font = `700 ${wide ? 15.5 : 13}px ${monoFont}`;
+      ctx.fillStyle = '#faf3e1';
+      ctx.fillText(String(Math.floor(this.score)).padStart(7, '0'), rx, rightY + 14);
+
+      const hdgDeg = ((Math.round((p.bank || 0) * 18) % 360) + 360) % 360;
+      const hdgStr = String(hdgDeg).padStart(3, '0');
+      ctx.font = `600 10px ${monoFont}`;
+      ctx.fillStyle = '#93ded0';
+      const rightSub = wide
+        ? `HDG ${hdgStr}° · ${this.distanceKm.toFixed(1)} KM`
+        : `${this.distanceKm.toFixed(1)} KM`;
+      ctx.fillText(rightSub, rx, rightY + 27);
+
+      // Subtle right-edge aviation tick next to the pause FAB
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(255, 190, 105, 0.42)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(rx + 5, rightY + 3);
+      ctx.lineTo(rx + 5, rightY + 29);
+      ctx.stroke();
+
+      // Combo: clean typographic counter nestled below top-right telemetry
       if (this.combo >= 5) {
         const mult = 1 + Math.min(2.0, this.combo * 0.05);
-        const cx = W - 16;
-        const cy = this.hudTop + 62;
-        ctx.save();
-        ctx.textAlign = 'right';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+        const cx = wide ? rx : W - 14;
+        const cy = y0 + (wide ? 54 : 62);
+        ctx.shadowColor = 'rgba(4, 16, 22, 0.78)';
         ctx.shadowBlur = 4;
-        const pulse = this.comboPulse > 0 ? 1 + this.comboPulse * 0.9 : 1;
-        ctx.font = `900 ${Math.round(18 * pulse)}px system-ui, -apple-system, sans-serif`;
-        ctx.fillStyle = this.combo >= 50 ? '#f472b6' : '#fde047';
+        const pulse = this.comboPulse > 0 ? 1 + this.comboPulse * 0.85 : 1;
+        ctx.font = `800 ${Math.round(18 * pulse)}px ${monoFont}`;
+        ctx.fillStyle = this.combo >= 50 ? '#ff9582' : '#ffbe69';
         ctx.fillText(`${this.combo}`, cx, cy);
-        ctx.font = '700 10px system-ui, -apple-system, sans-serif';
-        ctx.fillStyle = '#f1f5f9';
+        ctx.font = `700 10px ${sansFont}`;
+        ctx.fillStyle = '#faf3e1';
         ctx.fillText(`连击 ×${mult.toFixed(2)}`, cx, cy + 13);
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#fde047';
+        ctx.fillStyle = 'rgba(7, 25, 31, 0.55)';
+        ctx.fillRect(cx - 54, cy + 18, 54, 2);
+        ctx.fillStyle = this.combo >= 50 ? '#ff9582' : '#ffbe69';
         ctx.fillRect(cx - 54, cy + 18, 54 * clamp(this.comboTimer / 3.2, 0, 1), 2);
-        ctx.restore();
       }
+      ctx.restore();
     }
   }
 

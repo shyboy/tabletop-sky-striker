@@ -156,3 +156,25 @@ test('continue while a calibration panel is open requests resume explicitly', ()
   element('btn-c-pause').dispatch('click');
   assert.deepEqual(packets.at(-1), { type: 'setPause', payload: { paused: false } });
 });
+
+test('cockpit MFD cycles between fusion HUD, attitude horizon, and pure radar without errors', () => {
+  const { state, element, frame, sendState } = openController();
+  const modeBtn = element('btn-mfd-mode');
+  assert.equal(state.mfdMode, 'fusion');
+
+  sendState({ sky: 'sunset', bank: 0.45, speedRatio: 0.8, blips: [{ nx: 0.2, ny: -0.4, b: 1 }] });
+  frame(520);
+  assert.ok(state.hudRoll !== 0);
+
+  modeBtn.dispatch('click');
+  assert.equal(state.mfdMode, 'horizon');
+  frame(540);
+
+  modeBtn.dispatch('click');
+  assert.equal(state.mfdMode, 'radar');
+  frame(560);
+
+  modeBtn.dispatch('click');
+  assert.equal(state.mfdMode, 'fusion');
+  frame(580);
+});

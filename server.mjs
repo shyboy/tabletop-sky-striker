@@ -20,11 +20,13 @@ const MIME_TYPES = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.ico': 'image/x-icon'
 };
+const MAX_WS_FRAME_BYTES = 256 * 1024;
 
 // ---------------- 1. Smart LAN IPv4 Detection (filters out TUN/Proxy/WSL virtual adapters) ----------------
 function detectLanIPs() {
@@ -241,6 +243,10 @@ function attachWebSocketRelay(server) {
     let recvBuf = Buffer.alloc(0);
 
     socket.on('data', (chunk) => {
+      if (recvBuf.length + chunk.length > MAX_WS_FRAME_BYTES) {
+        socket.destroy();
+        return;
+      }
       recvBuf = Buffer.concat([recvBuf, chunk]);
 
       while (recvBuf.length >= 2) {
@@ -259,6 +265,11 @@ function attachWebSocketRelay(server) {
           if (recvBuf.length < 10) return;
           payloadLen = Number(recvBuf.readBigUInt64BE(2));
           offset = 10;
+        }
+
+        if (payloadLen > MAX_WS_FRAME_BYTES) {
+          socket.destroy();
+          return;
         }
 
         const maskBytes = masked ? 4 : 0;
@@ -281,8 +292,10 @@ function attachWebSocketRelay(server) {
           socket.end(Buffer.from([0x88, 0x00]));
           return;
         } else if (opcode === 0x9) {
-          // Ping -> Pong
-          socket.write(Buffer.concat([Buffer.from([0x8a, data.length]), data]));
+          // Ping -> Pong (RFC 6455 control frames max 125 bytes)
+          if (data.length <= 125) {
+            socket.write(Buffer.concat([Buffer.from([0x8a, data.length]), data]));
+          }
         } else if (opcode === 0x1) {
           // Relay text message across the host <-> clients star of this room
           const outFrame = encodeWsTextFrame(data.toString('utf8'));
@@ -333,12 +346,21 @@ function handleRequest(req, res) {
     return;
   }
 
-  let relPath = decodeURIComponent(reqUrl.pathname);
+  let relPath;
+  try {
+    relPath = decodeURIComponent(reqUrl.pathname);
+  } catch (_) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad Request');
+    return;
+  }
   if (relPath === '/') relPath = '/index.html';
 
-  const safePath = path.normalize(path.join(__dirname, relPath));
-  if (!safePath.startsWith(__dirname)) {
-    res.writeHead(403);
+  const safePath = path.resolve(__dirname, '.' + relPath);
+  const relFromRoot = path.relative(__dirname, safePath);
+  const hasDotSegment = relFromRoot.split(path.sep).some((seg) => seg.startsWith('.') && seg !== '.');
+  if (relFromRoot.startsWith('..') || path.isAbsolute(relFromRoot) || hasDotSegment) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Forbidden');
     return;
   }

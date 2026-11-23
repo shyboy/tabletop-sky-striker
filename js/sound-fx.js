@@ -166,9 +166,11 @@
           this.ctx.onstatechange = () => this._syncMusic();
         } catch (e) { /* ignore */ }
       }
-      if (this.ctx.state === 'suspended') {
-        const p = this.ctx.resume();
-        if (p && p.then) p.then(() => this._syncMusic()).catch(() => {});
+      if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') {
+        try {
+          const p = this.ctx.resume();
+          if (p && p.then) p.then(() => this._syncMusic()).catch(() => {});
+        } catch (e) { /* ignore */ }
       }
       this._syncMusic();
       return this.ctx.state === 'running';

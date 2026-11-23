@@ -90,10 +90,19 @@
     return state.gotTelemetry && performance.now() - state.lastTelemetryAt < TELEMETRY_STALE_MS;
   }
 
+  const isWeChat = typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent || '');
+
   /** null when crew actions are accepted, otherwise why not. */
   function blockReason() {
     const t = state.telemetry;
-    if (!state.connected) return { short: '未连接', text: '正在连接平板…', sub: `请确认平板已打开游戏，房间号 ${roomId}` };
+    if (!state.connected) {
+      const sub = isWeChat
+        ? `若微信内一直连不上，请点右上角 ⋯ 在系统浏览器打开（房间号 ${roomId}）`
+        : (state.signalError
+          ? `公网信令连接受阻，请检查网络或与平板连接同一 Wi-Fi（房间号 ${roomId}）`
+          : `请确认平板已打开游戏，房间号 ${roomId}`);
+      return { short: '未连接', text: '正在连接平板…', sub };
+    }
     if (!state.gotTelemetry) return { short: '同步中', text: '已连上平板，正在同步…', sub: '' };
     if (t.phase === 'gameover') return { short: '等待起飞', text: '本局结束', sub: '等小飞行员再次起飞，地勤继续待命' };
     if (t.phase !== 'playing') return { short: '等待起飞', text: '等待起飞', sub: '孩子在手柄或平板上点「点火起飞」后，支援就会解锁' };
@@ -203,6 +212,7 @@
       state.connected = Boolean(info.connected);
       state.transport = info.transport || '';
       state.rttMs = info.rttMs;
+      state.signalError = info.signalError || null;
       if (state.connected && !was) {
         sendCrew('hello');
         bridge.send('requestState');

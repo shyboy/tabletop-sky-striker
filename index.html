@@ -3,7 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="description" content="把真玩具放上平板停机坪，握起手机当无线体感飞行杆，对着麦克风吹出八级顺风清屏！内置《借风计划》三幕航行故事与 21 张肉鸽进化技能卡，免安装在线即玩。">
+  <meta name="theme-color" content="#0d3239">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="桌面飞机大战">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="借风计划 · 桌面飞机大战">
+  <meta property="og:title" content="借风计划 · 桌面飞机大战 — 真玩具压屏 + 手机体感吹气双屏互动">
+  <meta property="og:description" content="把桌上的合金小车、折纸飞机放进屏幕停机坪，手机扫码当无线飞行摇杆、对麦吹气掀起八级顺风！支持家长第二台手机当地勤协同护航。">
+  <meta property="og:url" content="https://shyboy.github.io/tabletop-sky-striker/">
+  <meta property="og:image" content="https://shyboy.github.io/tabletop-sky-striker/assets/departure.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="借风计划 · 桌面飞机大战 (Tabletop Sky Striker)">
+  <meta name="twitter:description" content="把真玩具放上平板停机坪，手机扫码体感驾驶 + 对麦吹气清屏的双屏虚实互动飞机大战。">
+  <meta name="twitter:image" content="https://shyboy.github.io/tabletop-sky-striker/assets/departure.jpg">
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
+  <link rel="manifest" href="./manifest.webmanifest">
   <script src="./js/no-zoom.js"></script>
+  <script src="./js/wake-lock.js"></script>
   <title>借风计划 · 桌面飞机大战（双屏虚实互动版）</title>
   <style>
     :root {
@@ -1161,6 +1181,30 @@
       显示控制栏 (H)
     </button>
 
+    <!-- Slim Bottom Aviation Telemetry & Shortcut Strip (desktop/non-touch flight view) -->
+    <footer id="flight-strip" class="flight-strip" hidden aria-label="飞行状态与快捷键提示">
+      <div class="flight-strip-left">
+        <span class="flight-strip-dot" aria-hidden="true"></span>
+        <span id="strip-chapter">Ⅰ · 晴空借风</span>
+      </div>
+      <div class="flight-strip-keys" aria-hidden="true">
+        <span><kbd>WASD</kbd>移动</span>
+        <span><kbd>Space</kbd>翻滚</span>
+        <span><kbd>F</kbd>顺风</span>
+        <span><kbd>Shift</kbd>磁轨</span>
+        <span><kbd>K</kbd>核弹</span>
+        <span><kbd>V</kbd>滤镜</span>
+      </div>
+      <div class="flight-strip-right">
+        <span id="strip-nukes" class="flight-strip-nukes" aria-label="战术核弹数量">☢ 1/3</span>
+        <button type="button" id="btn-strip-filter" class="strip-btn" aria-pressed="false" title="切换画面滤镜彩蛋 (V)">滤镜：标准</button>
+        <button type="button" id="btn-strip-mute" class="strip-btn" aria-pressed="true" title="开关音效">音效开</button>
+        <button type="button" id="btn-strip-pure" class="strip-btn" title="进入实拍纯净模式 (H)">实拍 H</button>
+      </div>
+    </footer>
+
+    <div id="filter-toast" class="filter-toast" role="status" aria-live="polite" hidden></div>
+
     <!-- 1. Main Title & Story Screen -->
     <section id="title-overlay" aria-labelledby="main-story-title">
       <div class="flight-head">
@@ -1285,6 +1329,7 @@
           </button>
           <button type="button" id="pc-sky" class="quick-btn">背景：随剧情</button>
           <button type="button" id="pc-dim" class="quick-btn" title="飞行中把背景压暗，让战机和子弹更醒目">背景亮度：标准</button>
+          <button type="button" id="pc-filter" class="quick-btn" title="轻量级画面质感彩蛋：标准绘本 / 复古像素 / 暖调胶片（快捷键 V）">🎨 滤镜：标准绘本</button>
           <button type="button" id="pc-mute" class="quick-btn">音效：开</button>
           <button type="button" id="btn-pure-camera" class="quick-btn" title="隐藏全部界面，方便拍视频（H 键恢复）">📷 实拍纯净</button>
           <button type="button" id="btn-pause-setup" class="quick-btn">🎯 校准底座</button>
@@ -1382,6 +1427,7 @@
               <tr><td>⚡ 磁轨炮</td><td>下拉拉栓后松手</td><td>按住右下「磁轨」</td><td>按住 Shift·J / L2</td></tr>
               <tr><td>☢ 核弹</td><td>大圆按钮</td><td>右下「☢」</td><td>K / ○·B</td></tr>
               <tr><td>🌀 翻滚</td><td>后拉手机 / 翻滚键</td><td>左下「翻滚」</td><td>Space / L1·R1</td></tr>
+              <tr><td>🎨 画面滤镜</td><td>—</td><td>暂停菜单切换</td><td>V（标准 / 像素 / 胶片）</td></tr>
               <tr><td>⏸ 暂停 · 设置</td><td>暂停键</td><td>右上角 ⏸</td><td>P · Esc / Start</td></tr>
             </tbody>
           </table>
@@ -1581,7 +1627,7 @@
       'use strict';
 
       const params = new URLSearchParams(location.search);
-      const roomId = (params.get('room') || window.randomRoomCode()).toUpperCase();
+      let roomId = (params.get('room') || window.randomRoomCode()).toUpperCase();
       if (!params.get('room') && history.replaceState) {
         const nextUrl = new URL(location.href);
         nextUrl.searchParams.set('room', roomId);
@@ -1666,6 +1712,17 @@
       const SKY_ORDER = ['auto', 'day', 'sunset', 'night'];
       const DIM_LABELS = { normal: '标准', dark: '压暗', max: '很暗' };
       const DIM_ORDER = ['normal', 'dark', 'max'];
+      const FILTER_LABELS = { normal: '标准绘本', pixel: '复古像素', film: '暖调胶片' };
+      const FILTER_SHORT = { normal: '标准', pixel: '像素', film: '胶片' };
+      const FILTER_ORDER = ['normal', 'pixel', 'film'];
+      const flightStrip = document.getElementById('flight-strip');
+      const stripChapter = document.getElementById('strip-chapter');
+      const stripNukes = document.getElementById('strip-nukes');
+      const btnStripFilter = document.getElementById('btn-strip-filter');
+      const btnStripMute = document.getElementById('btn-strip-mute');
+      const btnStripPure = document.getElementById('btn-strip-pure');
+      const filterToast = document.getElementById('filter-toast');
+      let filterToastTimer = null;
 
       // Declared before the engine exists: its constructor already triggers a UI sync
       const TOY_DESC = {
@@ -1837,6 +1894,21 @@
         btnSkyTheme.title = skyLabel;
         document.getElementById('pc-sky').textContent = skyLabel;
         document.getElementById('pc-dim').textContent = `背景亮度：${DIM_LABELS[st.bgDim] || '标准'}`;
+        const filterKey = FILTER_LABELS[st.visualFilter] ? st.visualFilter : 'normal';
+        document.getElementById('pc-filter').textContent = `🎨 滤镜：${FILTER_LABELS[filterKey]}`;
+        if (btnStripFilter) {
+          btnStripFilter.textContent = `滤镜：${FILTER_SHORT[filterKey]}`;
+          btnStripFilter.setAttribute('aria-pressed', String(filterKey !== 'normal'));
+        }
+        if (stripChapter) {
+          stripChapter.textContent = st.chapterTitle || '第一航段 · 晴空借风';
+        }
+        if (stripNukes) {
+          stripNukes.textContent = `☢ ${st.nukes ?? 0}/3`;
+        }
+        if (flightStrip) {
+          flightStrip.hidden = !(isPlaying && !st.paused && !coarsePointer && !st.pureCamera && !localDialogOpen);
+        }
         lastState = st;
         renderCoach(lastCoach);
         syncDock();
@@ -2006,6 +2078,12 @@
             dockRail.classList.toggle('cooling', telemetry.railReady === 0);
             document.getElementById('dock-nuke').classList.toggle('cooling', !telemetry.nukes);
           }
+          if (stripNukes && typeof telemetry.nukes === 'number') {
+            stripNukes.textContent = `☢ ${telemetry.nukes}/3`;
+          }
+          if (stripChapter && telemetry.chapterTitle) {
+            stripChapter.textContent = telemetry.chapterTitle;
+          }
         },
         onCoach(c) {
           renderCoach(c);
@@ -2111,15 +2189,26 @@
           } else {
             txt.textContent = crewOnline ? '地勤在线 · 座舱待连' : `手机扫码 (${roomId})`;
             titleConnPill.textContent = crewOnline ? '地勤已连接 · 等待驾驶手机' : `房间 ${roomId} · 可扫码连手机或直接起飞`;
-            const waiting = hasPairedCockpit ? '驾驶座舱已断开，可打开原链接重连。' : '等待驾驶座舱连接。';
+            const waiting = info.signalError
+              ? '公网信令连接受阻，请检查网络或让两台设备连接同一 Wi-Fi 后刷新重试。'
+              : (hasPairedCockpit ? '驾驶座舱已断开，可打开原链接重连。' : '等待驾驶座舱连接。');
             status = crewOnline ? `地勤已连接。${waiting}` : waiting;
           }
           titleConnPill.style.color = controllerOnline ? '#4ade80' : '';
           live.style.color = controllerOnline ? '#4ade80' : '';
           if (live.textContent !== status) live.textContent = status;
+        },
+        onRoomChange(nextRoom) {
+          roomId = nextRoom;
+          roomBadge.textContent = `ROOM ${roomId}`;
+          if (history.replaceState) {
+            const nextUrl = new URL(location.href);
+            nextUrl.searchParams.set('room', roomId);
+            history.replaceState(null, '', nextUrl);
+          }
+          updateQRForBase(activeQrBase, activeQrLan);
         }
       });
-      bridge.start();
 
       // Build QR & LAN Endpoints
       const roomBadge = document.getElementById('room-code-badge');
@@ -2135,7 +2224,13 @@
         return url.protocol === 'file:' || /^(localhost|127\.[\d.]+|0\.0\.0\.0|\[::1\])$/i.test(url.hostname);
       }
 
+      const pageUrl = new URL(location.href);
+      let activeQrBase = pageUrl;
+      let activeQrLan = false;
+
       function updateQRForBase(baseUrl, localNetwork = false) {
+        activeQrBase = baseUrl;
+        activeQrLan = localNetwork;
         const ctrlUrl = new URL('./controller.html', baseUrl);
         ctrlUrl.searchParams.set('room', roomId);
         const full = ctrlUrl.toString();
@@ -2159,11 +2254,11 @@
           ? '当前只有本机地址。两台设备连入同一个 Wi-Fi 或热点后，刷新大屏以获取手机扫码地址。也可先点「同机副屏」。'
           : localNetwork
             ? '手机和大屏需连接同一 Wi-Fi 或热点。若扫码打不开页面，请从下拉菜单换一个局域网地址，再扫新的码。'
-            : '若扫码打开后一直连接中，请检查两台设备的网络，再从此处重新扫码。';
+            : '用手机相机或浏览器扫码配对；若微信扫码后一直连接中，请点手机右上角 ⋯ 选「在默认浏览器打开」。';
       }
 
-      const pageUrl = new URL(location.href);
       updateQRForBase(pageUrl);
+      bridge.start();
 
       if (/^https?:$/.test(pageUrl.protocol) && !/\.github\.io$/i.test(pageUrl.hostname)) {
         fetch('/api/network-info')
@@ -2394,9 +2489,55 @@
         btnMute.setAttribute('aria-pressed', String(!muted));
         btnMute.title = label;
         document.getElementById('pc-mute').textContent = label;
+        if (btnStripMute) {
+          btnStripMute.textContent = muted ? '音效关' : '音效开';
+          btnStripMute.setAttribute('aria-pressed', String(!muted));
+        }
       };
       btnMute.addEventListener('click', toggleMute);
       document.getElementById('pc-mute').addEventListener('click', toggleMute);
+      if (btnStripMute) btnStripMute.addEventListener('click', toggleMute);
+      if (btnStripPure) {
+        btnStripPure.addEventListener('click', () => {
+          sfx.unlock();
+          engine.updateRig({ pureCamera: true }, false);
+        });
+      }
+
+      const showFilterToast = (filterKey) => {
+        if (!filterToast) return;
+        const desc = filterKey === 'pixel'
+          ? '复古像素 · 4×4 抖动彩蛋'
+          : (filterKey === 'film' ? '暖调胶片 · 35mm 航拍质感' : '标准绘本 · 原生高清');
+        filterToast.textContent = `🎨 画面滤镜：${desc}`;
+        filterToast.hidden = false;
+        filterToast.classList.add('show');
+        if (filterToastTimer && typeof clearTimeout === 'function') clearTimeout(filterToastTimer);
+        if (typeof setTimeout === 'function') {
+          filterToastTimer = setTimeout(() => {
+            filterToast.classList.remove('show');
+            filterToast.hidden = true;
+          }, 1600);
+        }
+      };
+
+      const cycleVisualFilter = (announce = true) => {
+        sfx.unlock();
+        sfx.uiClick();
+        const cur = engine.rig.visualFilter || 'normal';
+        const next = FILTER_ORDER[(FILTER_ORDER.indexOf(cur) + 1) % FILTER_ORDER.length];
+        engine.updateRig({ visualFilter: next }, false);
+        try { localStorage.setItem('skyStriker.visualFilter', next); } catch (e) { /* ignore */ }
+        if (announce) showFilterToast(next);
+      };
+
+      document.getElementById('pc-filter').addEventListener('click', () => cycleVisualFilter(true));
+      if (btnStripFilter) btnStripFilter.addEventListener('click', () => cycleVisualFilter(true));
+      try {
+        const savedFilter = localStorage.getItem('skyStriker.visualFilter');
+        if (savedFilter && FILTER_LABELS[savedFilter]) engine.updateRig({ visualFilter: savedFilter }, false);
+      } catch (e) { /* storage blocked */ }
+
       document.getElementById('pc-sky').addEventListener('click', () => btnSkyTheme.click());
       document.getElementById('pc-dim').addEventListener('click', () => {
         sfx.uiClick();
@@ -2584,6 +2725,8 @@
             engine.startMission();
           } else if (ev.code === 'KeyM') {
             engine.updateRig({ mode: engine.rig.mode === 'tabletop' ? 'arcade' : 'tabletop' }, true);
+          } else if (ev.code === 'KeyV') {
+            cycleVisualFilter(true);
           }
           return;
         }
@@ -2615,6 +2758,8 @@
           } else if (ev.code === 'KeyL' && engine.victoryHold) {
             ev.preventDefault();
             engine.finishVoyage();
+          } else if (ev.code === 'KeyV') {
+            cycleVisualFilter(true);
           }
           return;
         }
@@ -2632,6 +2777,8 @@
           engine.updateRig({ mode: engine.rig.mode === 'tabletop' ? 'arcade' : 'tabletop' }, true);
         } else if (ev.code === 'KeyH') {
           engine.updateRig({ pureCamera: !engine.rig.pureCamera }, false);
+        } else if (ev.code === 'KeyV') {
+          cycleVisualFilter(true);
         }
       });
 

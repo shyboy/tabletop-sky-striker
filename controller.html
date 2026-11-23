@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="theme-color" content="#081e24">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
   <script src="./js/no-zoom.js"></script>
+  <script src="./js/wake-lock.js"></script>
   <title>借风座舱手柄 · 桌面飞机大战</title>
   <style>
     :root {
@@ -749,11 +756,16 @@
       <span id="c-coach-text"></span>
     </div>
 
-    <!-- 2. MFD Tactical Radar & Sensors -->
-    <section class="mfd-bay" aria-label="战术雷达与传感器">
+    <!-- 2. MFD Tactical Radar & Aviation Attitude HUD -->
+    <section class="mfd-bay" aria-label="航空姿态仪、战术雷达与传感器">
       <div class="radar-card">
-        <canvas id="radar-canvas" width="140" height="140" aria-label="敌机方位雷达"></canvas>
-        <span class="radar-caption" id="wave-label">停机坪待命</span>
+        <div class="mfd-bezel">
+          <canvas id="radar-canvas" width="180" height="180" aria-label="座舱航空姿态仪与敌机方位雷达"></canvas>
+        </div>
+        <div class="mfd-foot">
+          <span class="radar-caption" id="wave-label">停机坪待命</span>
+          <button type="button" id="btn-mfd-mode" class="mfd-switch-btn" aria-label="切换座舱仪表显示模式">融合HUD</button>
+        </div>
       </div>
 
       <div class="sensor-col">
@@ -761,7 +773,7 @@
           <div class="chapter-line" id="chapter-label">借风计划 · 把玩具放进停机坪</div>
           <div class="stats-strip">
             <span class="station-score"><small>得分</small><b id="score-text">0000000</b></span>
-            <span id="lv-text" style="color:#7dd3fc;">Lv.1 · 火力1</span>
+            <span id="lv-text" style="color:var(--sea-glass);">Lv.1 · 火力1</span>
           </div>
           <div class="meter-row"><span>耐久</span>
             <div id="cockpit-hp" class="hp-track" role="progressbar" aria-label="机体耐久" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">

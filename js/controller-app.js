@@ -34,6 +34,10 @@
     micLevel: 0,
     blowFrames: 0,
     lastGustAt: 0,
+    mfdMode: 'fusion', // 'fusion' (Attitude HUD + Radar) | 'horizon' (Pure Attitude HUD) | 'radar' (Tactical Radar)
+    hudRoll: 0,
+    hudPitch: 0,
+    hudRollAnim: 0,
     skillDraft: null,
     telemetry: {
       phase: 'title',
@@ -44,6 +48,10 @@
       distanceKm: 0,
       wave: 1,
       chapterTitle: '第一航段 · 晴空借风',
+      sky: 'day',
+      bank: 0,
+      speedRatio: 0,
+      rollActive: false,
       hp: 100,
       weaponLv: 1,
       nukes: 2,
@@ -95,6 +103,7 @@
   const nukeCount = document.getElementById('nuke-count');
   const btnWind = document.getElementById('btn-wind');
   const micBar = document.getElementById('mic-bar');
+  const btnMfdMode = document.getElementById('btn-mfd-mode');
   const cWidth = document.getElementById('c-width');
   const cLength = document.getElementById('c-length');
   const cAnchor = document.getElementById('c-anchor');
@@ -173,10 +182,21 @@
         if (!wasConnected) bridge.send('requestState');
         dot.classList.add('ok');
         txt.textContent = `${info.roomId} · ${info.transport}${info.rttMs ? ' ' + info.rttMs + 'ms' : ''}`;
+        if (sensorMsg.dataset && sensorMsg.dataset.netHint === '1') {
+          sensorMsg.dataset.netHint = '';
+          sensorMsg.textContent = '';
+        }
       } else {
         if (wasConnected) resetControls();
         dot.classList.remove('ok');
         txt.textContent = `待连主机 (${info.roomId})`;
+        if (info.isWeChat && !sensorMsg.textContent) {
+          if (sensorMsg.dataset) sensorMsg.dataset.netHint = '1';
+          sensorMsg.textContent = '提示：若微信内一直未连上或无法开启体感/吹气，请点右上角 ⋯ 选择「在默认浏览器打开」。';
+        } else if (info.signalError && !sensorMsg.textContent) {
+          if (sensorMsg.dataset) sensorMsg.dataset.netHint = '1';
+          sensorMsg.textContent = '提示：公网信令连接受阻，请确认网络畅通或与大屏连接同一 Wi-Fi 后重新扫码。';
+        }
       }
     }
   });
@@ -287,7 +307,10 @@
           return;
         }
       } catch (err) {
-        alert('iOS 陀螺仪授权需要 HTTPS 安全连接。请在大屏扫码弹窗中切换为 HTTPS 地址后再试！');
+        const inWeChat = typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent || '');
+        alert(inWeChat
+          ? '微信内置浏览器可能限制陀螺仪授权，请点右上角 ⋯ 选择「在默认浏览器打开」后再开启体感！'
+          : 'iOS 陀螺仪授权需要 HTTPS 安全连接。请在大屏扫码弹窗中切换为 HTTPS 地址后再试！');
         return;
       }
     }
@@ -333,6 +356,7 @@
     sfx.unlock();
     sfx.barrelRoll();
     vibrate([25, 20, 35]);
+    state.hudRollAnim = 1;
     bridge.send('barrelRoll');
   }
   document.getElementById('btn-roll').addEventListener('click', triggerRoll);
@@ -498,7 +522,10 @@
       };
       requestAnimationFrame(pollMic);
     } catch (_) {
-      // Permission declined; tap-to-gust still works seamlessly
+      // Permission declined or blocked by in-app WebView; tap-to-gust still works seamlessly
+      if (typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent || '')) {
+        sensorMsg.textContent = '提示：微信内置浏览器可能拦截麦克风吹气，点按顺风键仍可释放；或点右上角 ⋯ 用系统浏览器打开。';
+      }
     }
   }
 
@@ -767,24 +794,248 @@
     if (isNewOpen) vibrate([30, 40, 65]);
   }
 
-  // 8. 45Hz Control Stream + Tactical Radar Canvas Render
+  // 8. 45Hz Control Stream + Aviation Attitude HUD & Tactical Radar MFD
   const radarCanvas = document.getElementById('radar-canvas');
   const rctx = radarCanvas.getContext('2d');
+  const MFD_MODES = ['fusion', 'horizon', 'radar'];
+  const MFD_LABELS = { fusion: '融合HUD', horizon: '地平仪', radar: '战术雷达' };
   let sweepAngle = 0;
 
-  function drawRadar() {
-    const W = radarCanvas.width;
-    const H = radarCanvas.height;
+  try {
+    const savedMfd = typeof localStorage !== 'undefined' && localStorage.getItem('skyStriker.mfdMode');
+    if (savedMfd && MFD_LABELS[savedMfd]) state.mfdMode = savedMfd;
+  } catch (_) {}
+
+  function syncMfdButton() {
+    if (!btnMfdMode) return;
+    btnMfdMode.textContent = MFD_LABELS[state.mfdMode] || '融合HUD';
+    btnMfdMode.setAttribute('aria-label', `座舱仪表模式：${MFD_LABELS[state.mfdMode] || '融合HUD'}，点击切换`);
+  }
+
+  function cycleMfdMode() {
+    sfx.unlock();
+    sfx.uiClick();
+    vibrate(14);
+    const idx = MFD_MODES.indexOf(state.mfdMode);
+    state.mfdMode = MFD_MODES[(idx + 1) % MFD_MODES.length];
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('skyStriker.mfdMode', state.mfdMode);
+    } catch (_) {}
+    syncMfdButton();
+  }
+
+  if (btnMfdMode) btnMfdMode.addEventListener('click', cycleMfdMode);
+  if (radarCanvas) radarCanvas.addEventListener('click', cycleMfdMode);
+  syncMfdButton();
+
+  function drawHorizonHUD(W, H, overlayRadar) {
+    const cx = W * 0.5;
+    const cy = H * 0.5;
+    const R = Math.min(W, H) * 0.48;
+    const t = state.telemetry;
+    const useStick = state.touchOverride || state.controlMode === 'touch';
+    const inputVx = useStick ? state.stickVx : state.gyroVx;
+    const inputVy = useStick ? state.stickVy : state.gyroVy;
+
+    // Responsive local control feel blended with live host bank telemetry
+    const targetRoll = (Math.abs(inputVx) > 0.01 ? inputVx : (t.bank || 0)) * 0.62;
+    const targetPitch = (Math.abs(inputVy) > 0.01 ? -inputVy : (t.speedRatio || 0) * 0.25) * 0.42;
+    state.hudRoll += (targetRoll - state.hudRoll) * 0.2;
+    state.hudPitch += (targetPitch - state.hudPitch) * 0.18;
+
+    if (t.rollActive && state.hudRollAnim <= 0.01) state.hudRollAnim = 1;
+    if (state.hudRollAnim > 0) {
+      state.hudRollAnim = Math.max(0, state.hudRollAnim - 0.036);
+    }
+    const spinAngle = state.hudRollAnim > 0 ? Math.sin(state.hudRollAnim * Math.PI) * Math.PI * 2 : 0;
+    const rollAngle = -state.hudRoll + spinAngle;
+    const pitchPx = state.hudPitch * R * 0.62;
+
+    const skyKey = t.sky === 'sunset' ? 'sunset' : (t.sky === 'night' ? 'night' : 'day');
+    const skyPalettes = {
+      day:    { top: '#1a4f66', horizon: '#5aa6a7', ground: '#0a2530', deep: '#05141b', line: '#faf3e1' },
+      sunset: { top: '#2b1d3d', horizon: '#c96b45', ground: '#1c1224', deep: '#0d0914', line: '#ffbe69' },
+      night:  { top: '#061529', horizon: '#1e5058', ground: '#05101b', deep: '#02070d', line: '#93ded0' }
+    };
+    const pal = skyPalettes[skyKey];
+
+    rctx.clearRect(0, 0, W, H);
+
+    // Clip to circular aircraft instrument glass
+    rctx.save();
+    rctx.beginPath();
+    rctx.arc(cx, cy, R, 0, Math.PI * 2);
+    rctx.clip();
+
+    // 1. Rotating Sky / Sea Artificial Horizon Sphere
+    rctx.save();
+    rctx.translate(cx, cy);
+    rctx.rotate(rollAngle);
+
+    const skyGrad = rctx.createLinearGradient(0, -R * 1.4, 0, pitchPx);
+    skyGrad.addColorStop(0, pal.top);
+    skyGrad.addColorStop(1, pal.horizon);
+    rctx.fillStyle = skyGrad;
+    rctx.fillRect(-R * 1.6, -R * 1.8, R * 3.2, R * 1.8 + pitchPx + 1);
+
+    const gndGrad = rctx.createLinearGradient(0, pitchPx, 0, R * 1.5);
+    gndGrad.addColorStop(0, pal.ground);
+    gndGrad.addColorStop(1, pal.deep);
+    rctx.fillStyle = gndGrad;
+    rctx.fillRect(-R * 1.6, pitchPx, R * 3.2, R * 2.0);
+
+    // Crisp horizon line
+    rctx.strokeStyle = pal.line;
+    rctx.lineWidth = 1.4;
+    rctx.beginPath();
+    rctx.moveTo(-R * 1.3, pitchPx);
+    rctx.lineTo(R * 1.3, pitchPx);
+    rctx.stroke();
+
+    // 2. Green / Sea-Glass Fighter Pitch Ladder (+20 / +10 / -10 / -20)
+    const step = R * 0.25;
+    rctx.strokeStyle = 'rgba(147, 222, 208, 0.85)';
+    rctx.fillStyle = 'rgba(218, 252, 240, 0.88)';
+    rctx.font = '700 8px "IBM Plex Mono", ui-monospace, monospace';
+    rctx.lineWidth = 1.1;
+    for (const deg of [-20, -10, 10, 20]) {
+      const py = pitchPx - (deg / 10) * step;
+      if (Math.abs(py) > R * 0.86) continue;
+      const half = Math.abs(deg) === 20 ? R * 0.22 : R * 0.30;
+      const gap = R * 0.11;
+      const tick = deg > 0 ? 4 : -4;
+      if (deg < 0 && rctx.setLineDash) rctx.setLineDash([4, 3]);
+      rctx.beginPath();
+      rctx.moveTo(-half, py + tick); rctx.lineTo(-half, py); rctx.lineTo(-gap, py);
+      rctx.moveTo(gap, py); rctx.lineTo(half, py); rctx.lineTo(half, py + tick);
+      rctx.stroke();
+      if (rctx.setLineDash) rctx.setLineDash([]);
+      rctx.textAlign = 'right';
+      rctx.fillText(String(Math.abs(deg)), -half - 3, py + 3);
+      rctx.textAlign = 'left';
+      rctx.fillText(String(Math.abs(deg)), half + 3, py + 3);
+    }
+    rctx.restore();
+
+    // 3. Optional Tactical Radar Overlay (Fusion mode: attitude + live enemy threats!)
+    if (overlayRadar) {
+      if (!t.paused) sweepAngle = (sweepAngle + 0.05) % (Math.PI * 2);
+      rctx.save();
+      rctx.translate(cx, cy);
+      rctx.strokeStyle = 'rgba(147, 222, 208, 0.22)';
+      rctx.lineWidth = 1;
+      rctx.beginPath();
+      rctx.arc(0, 0, R * 0.64, 0, Math.PI * 2);
+      rctx.stroke();
+
+      rctx.rotate(sweepAngle);
+      const swGrad = rctx.createLinearGradient(0, 0, R, 0);
+      swGrad.addColorStop(0, 'rgba(147, 222, 208, 0.26)');
+      swGrad.addColorStop(1, 'rgba(147, 222, 208, 0)');
+      rctx.fillStyle = swGrad;
+      rctx.beginPath();
+      rctx.moveTo(0, 0);
+      rctx.arc(0, 0, R, -0.32, 0.04);
+      rctx.closePath();
+      rctx.fill();
+      rctx.restore();
+
+      const blips = t.blips || [];
+      for (const b of blips) {
+        const bx = cx + b.nx * (R * 0.78);
+        const by = cy + b.ny * (R * 0.78);
+        rctx.fillStyle = b.b ? '#ffbe69' : '#ff6b57';
+        if (b.b) {
+          rctx.strokeStyle = '#faf3e1';
+          rctx.lineWidth = 1.2;
+          rctx.strokeRect(bx - 5, by - 5, 10, 10);
+          rctx.fillRect(bx - 2.5, by - 2.5, 5, 5);
+        } else {
+          rctx.beginPath();
+          rctx.moveTo(bx, by - 3.6);
+          rctx.lineTo(bx + 3.2, by);
+          rctx.lineTo(bx, by + 3.6);
+          rctx.lineTo(bx - 3.2, by);
+          rctx.closePath();
+          rctx.fill();
+        }
+      }
+    }
+
+    // 4. Upper Bank Angle Arc & Heading Indicator
+    rctx.strokeStyle = 'rgba(250, 243, 225, 0.42)';
+    rctx.lineWidth = 1;
+    rctx.beginPath();
+    rctx.arc(cx, cy, R - 8, -Math.PI * 0.82, -Math.PI * 0.18);
+    rctx.stroke();
+    for (const deg of [-45, -30, -15, 0, 15, 30, 45]) {
+      const a = (-90 + deg) * (Math.PI / 180);
+      const inner = deg === 0 ? R - 15 : (Math.abs(deg) === 30 ? R - 13 : R - 11);
+      rctx.beginPath();
+      rctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
+      rctx.lineTo(cx + Math.cos(a) * (R - 7), cy + Math.sin(a) * (R - 7));
+      rctx.stroke();
+    }
+
+    // Moving bank pointer triangle
+    const ptrA = -Math.PI * 0.5 + clamp(-state.hudRoll, -0.78, 0.78);
+    const pxTip = cx + Math.cos(ptrA) * (R - 14);
+    const pyTip = cy + Math.sin(ptrA) * (R - 14);
+    rctx.fillStyle = '#ffbe69';
+    rctx.beginPath();
+    rctx.arc(pxTip, pyTip, 2.5, 0, Math.PI * 2);
+    rctx.fill();
+
+    // 5. Fixed Center Aircraft Boresight Reticle (—v—)
+    rctx.strokeStyle = '#ffbe69';
+    rctx.lineWidth = 2;
+    rctx.beginPath();
+    rctx.moveTo(cx - 22, cy); rctx.lineTo(cx - 8, cy); rctx.lineTo(cx - 4, cy + 5);
+    rctx.moveTo(cx + 22, cy); rctx.lineTo(cx + 8, cy); rctx.lineTo(cx + 4, cy + 5);
+    rctx.stroke();
+    rctx.fillStyle = '#faf3e1';
+    rctx.beginPath();
+    rctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    rctx.fill();
+
+    // 6. Compact Aviation Digital Readouts (HDG / SPD / ALT)
+    const hdg = ((Math.round(state.hudRoll * 28) % 360) + 360) % 360;
+    const spd = Math.round(310 + (t.speedRatio || 0) * 560 + Math.abs(inputVy) * 120);
+    const alt = Math.round(520 + (t.distanceKm || 0) * 24 + state.hudPitch * 80);
+    rctx.font = '700 8.5px "IBM Plex Mono", ui-monospace, monospace';
+    rctx.fillStyle = 'rgba(7, 25, 31, 0.66)';
+    rctx.fillRect(cx - 20, 12, 40, 12);
+    rctx.fillStyle = '#faf3e1';
+    rctx.textAlign = 'center';
+    rctx.fillText(`${String(hdg).padStart(3, '0')}°`, cx, 21);
+
+    rctx.fillStyle = 'rgba(147, 222, 208, 0.92)';
+    rctx.textAlign = 'left';
+    rctx.fillText(`S${spd}`, 12, cy + 3);
+    rctx.textAlign = 'right';
+    rctx.fillText(`A${alt}`, W - 12, cy + 3);
+
+    rctx.restore();
+
+    // Crisp outer bezel rim
+    rctx.strokeStyle = 'rgba(147, 222, 208, 0.45)';
+    rctx.lineWidth = 1.5;
+    rctx.beginPath();
+    rctx.arc(cx, cy, R, 0, Math.PI * 2);
+    rctx.stroke();
+  }
+
+  function drawPureRadar(W, H) {
     const cx = W * 0.5;
     const cy = H * 0.72;
 
     rctx.clearRect(0, 0, W, H);
-    rctx.fillStyle = '#030914';
+    rctx.fillStyle = '#06181e';
     rctx.fillRect(0, 0, W, H);
 
-    rctx.strokeStyle = 'rgba(56, 189, 248, 0.22)';
+    rctx.strokeStyle = 'rgba(147, 222, 208, 0.24)';
     rctx.lineWidth = 1;
-    for (const r of [28, 56, 84]) {
+    for (const r of [W * 0.2, W * 0.4, W * 0.6]) {
       rctx.beginPath();
       rctx.arc(cx, cy, r, 0, Math.PI * 2);
       rctx.stroke();
@@ -796,22 +1047,22 @@
     rctx.save();
     rctx.translate(cx, cy);
     rctx.rotate(sweepAngle);
-    const grad = rctx.createLinearGradient(0, 0, 80, 0);
-    grad.addColorStop(0, 'rgba(56, 189, 248, 0.42)');
-    grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    const grad = rctx.createLinearGradient(0, 0, W * 0.56, 0);
+    grad.addColorStop(0, 'rgba(147, 222, 208, 0.45)');
+    grad.addColorStop(1, 'rgba(147, 222, 208, 0)');
     rctx.fillStyle = grad;
     rctx.beginPath();
     rctx.moveTo(0, 0);
-    rctx.arc(0, 0, 95, -0.35, 0.05);
+    rctx.arc(0, 0, W * 0.68, -0.35, 0.05);
     rctx.closePath();
     rctx.fill();
     rctx.restore();
 
-    rctx.fillStyle = '#4ade80';
+    rctx.fillStyle = '#ffbe69';
     rctx.beginPath();
-    rctx.moveTo(cx, cy - 6);
-    rctx.lineTo(cx + 5, cy + 5);
-    rctx.lineTo(cx - 5, cy + 5);
+    rctx.moveTo(cx, cy - 7);
+    rctx.lineTo(cx + 5.5, cy + 5.5);
+    rctx.lineTo(cx - 5.5, cy + 5.5);
     rctx.closePath();
     rctx.fill();
 
@@ -819,10 +1070,20 @@
     for (const b of blips) {
       const bx = cx + b.nx * (W * 0.44);
       const by = cy + b.ny * (H * 0.68);
-      rctx.fillStyle = b.b ? '#fb923c' : '#ef4444';
+      rctx.fillStyle = b.b ? '#ffbe69' : '#ff6b57';
       rctx.beginPath();
-      rctx.arc(bx, by, b.b ? 6 : 3.2, 0, Math.PI * 2);
+      rctx.arc(bx, by, b.b ? 6.5 : 3.6, 0, Math.PI * 2);
       rctx.fill();
+    }
+  }
+
+  function drawRadar() {
+    const W = radarCanvas.width || 180;
+    const H = radarCanvas.height || 180;
+    if (state.mfdMode === 'radar') {
+      drawPureRadar(W, H);
+    } else {
+      drawHorizonHUD(W, H, state.mfdMode === 'fusion');
     }
   }
 

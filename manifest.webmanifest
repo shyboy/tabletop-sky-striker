@@ -1,0 +1,22 @@
+{
+  "id": "./",
+  "name": "借风计划 · 桌面飞机大战",
+  "short_name": "桌面飞机大战",
+  "description": "把真玩具放上平板停机坪，手机扫码当无线体感飞行杆，对麦克风吹出八级顺风清屏的双屏虚实互动飞行射击游戏。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#071426",
+  "theme_color": "#0d3239",
+  "categories": ["games", "entertainment", "kids"],
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

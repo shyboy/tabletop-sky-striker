@@ -12,9 +12,17 @@
 (function (global) {
   'use strict';
 
-  const PEERJS_CDNS = [
-    'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
-    'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'
+  const PEERJS_SRI = 'sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR';
+  const PEERJS_SOURCES = [
+    { src: './js/vendor/peerjs.min.js', crossOrigin: false },
+    { src: 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', crossOrigin: true, integrity: PEERJS_SRI },
+    { src: 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js', crossOrigin: true, integrity: PEERJS_SRI }
+  ];
+  const RTC_ICE_SERVERS = [
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.miwifi.com:3478' },
+    { urls: 'stun:stun.qq.com:3478' },
+    { urls: 'stun:stun.l.google.com:19302' }
   ];
   const PEER_PREFIX = 'yang-sky-striker-v1-';
   const TRANSPORT_ORDER = ['同机直连', '局域网高速', 'WebRTC直连']; // fastest first
@@ -29,7 +37,7 @@
   }
 
   class LinkBridge {
-    constructor({ role, roomId, onMessage, onStatus }) {
+    constructor({ role, roomId, onMessage, onStatus, onRoomChange }) {
       this.role = role || 'controller'; // 'host' | 'controller' | 'crew' (any non-host role is a client)
       this.isHost = this.role === 'host';
       // Unique per page instance: lets pongs be addressed and duplicates (same packet arriving
@@ -42,6 +50,7 @@
       this.roomId = (roomId || randomRoomCode()).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'SKY1';
       this.onMessage = onMessage || (() => {});
       this.onStatus = onStatus || (() => {});
+      this.onRoomChange = onRoomChange || (() => {});
 
       this.bc = null;
       this.ws = null;
@@ -54,6 +63,9 @@
       this.lastSeenRemoteAt = 0;
       this.rttMs = null;
       this.transportName = '待连接';
+      this.signalError = null;
+      this._idConflictCount = 0;
+      this.isWeChat = Boolean(global.navigator && /MicroMessenger/i.test(global.navigator.userAgent || ''));
       this._timers = [];
       this._destroyed = false;
     }
@@ -84,12 +96,15 @@
       const now = performance.now();
       const alive = this.lastSeenRemoteAt > 0 && (now - this.lastSeenRemoteAt < 4500);
       this.remoteConnected = alive;
+      if (alive) this.signalError = null;
       const roles = this.connectedRoles();
       this.onStatus({
         connected: alive,
         roomId: this.roomId,
         transport: this.transportName,
         rttMs: this.rttMs,
+        signalError: alive ? null : this.signalError,
+        isWeChat: this.isWeChat,
         // Host: which client roles are alive right now, e.g. ['controller', 'crew'].
         // Client: ['host'] when linked, [] otherwise.
         roles,
@@ -300,21 +315,53 @@
       }
     }
 
-    _loadPeerScript(cdnIdx = 0) {
+    _loadPeerScript(srcIdx = 0) {
       if (global.Peer) return Promise.resolve(global.Peer);
-      if (cdnIdx >= PEERJS_CDNS.length) return Promise.reject(new Error('PeerJS CDN unavailable'));
+      if (srcIdx >= PEERJS_SOURCES.length) return Promise.reject(new Error('PeerJS unavailable'));
+      const entry = PEERJS_SOURCES[srcIdx];
       return new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = PEERJS_CDNS[cdnIdx];
+        let settled = false;
+        const failNext = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(loadTimer);
+          if (s.remove) s.remove();
+          this._loadPeerScript(srcIdx + 1).then(resolve, reject);
+        };
+        const loadTimer = setTimeout(failNext, 6000);
+        s.src = entry.src;
         s.async = true;
         s.dataset.peerjs = '1';
-        s.onload = () => (global.Peer ? resolve(global.Peer) : this._loadPeerScript(cdnIdx + 1).then(resolve, reject));
-        s.onerror = () => {
-          s.remove();
-          this._loadPeerScript(cdnIdx + 1).then(resolve, reject);
+        if (entry.crossOrigin) {
+          if (entry.integrity) s.integrity = entry.integrity;
+          s.crossOrigin = 'anonymous';
+          s.referrerPolicy = 'no-referrer';
+        }
+        s.onload = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(loadTimer);
+          if (global.Peer) resolve(global.Peer);
+          else this._loadPeerScript(srcIdx + 1).then(resolve, reject);
         };
+        s.onerror = failNext;
         document.head.appendChild(s);
       });
+    }
+
+    _rotateRoomCode() {
+      let next = randomRoomCode();
+      let guard = 0;
+      while (next === this.roomId && guard++ < 8) next = randomRoomCode();
+      this.roomId = next;
+      if (this.bc) {
+        try { this.bc.close(); } catch (_) {}
+        this.bc = null;
+        this._initBroadcastChannel();
+      }
+      this.onRoomChange(this.roomId);
+      this._emitStatus();
     }
 
     _initPeerFallback() {
@@ -324,7 +371,10 @@
           if (!PeerClass || this._destroyed || this.wsConnected) return;
           const hostPeerId = PEER_PREFIX + this.roomId;
           const myId = this.role === 'host' ? hostPeerId : undefined;
-          const peer = new PeerClass(myId, { debug: 0 });
+          const peer = new PeerClass(myId, {
+            debug: 0,
+            config: { iceServers: RTC_ICE_SERVERS }
+          });
           this.peer = peer;
 
           const connectToHost = () => {
@@ -332,11 +382,14 @@
             for (const c of this.peerConns) {
               if (c.open) return;
             }
-            const conn = peer.connect(hostPeerId, { reliable: true });
+            const conn = peer.connect(PEER_PREFIX + this.roomId, { reliable: true });
             this._bindPeerConn(conn);
           };
 
           peer.on('open', () => {
+            this.signalError = null;
+            this._idConflictCount = 0;
+            this._emitStatus();
             if (!this.isHost) {
               connectToHost();
               const retryId = setInterval(connectToHost, 2600);
@@ -354,9 +407,38 @@
             }
           });
 
-          peer.on('error', () => {});
+          peer.on('error', (err) => {
+            if (this._destroyed) return;
+            const errType = (err && err.type) || 'peer-error';
+            if (this.isHost && errType === 'unavailable-id') {
+              try { peer.destroy(); } catch (_) {}
+              if (this.peer === peer) this.peer = null;
+              if (this._idConflictCount < 1) {
+                this._idConflictCount++;
+                setTimeout(() => {
+                  if (!this._destroyed && !this.wsConnected) this._initPeerFallback();
+                }, 1200);
+              } else {
+                this._idConflictCount = 0;
+                this._rotateRoomCode();
+                setTimeout(() => {
+                  if (!this._destroyed && !this.wsConnected) this._initPeerFallback();
+                }, 300);
+              }
+              return;
+            }
+            if (errType !== 'peer-unavailable') {
+              this.signalError = errType;
+              this._emitStatus();
+            }
+          });
         })
-        .catch(() => {});
+        .catch(() => {
+          if (!this._destroyed && !this.wsConnected) {
+            this.signalError = 'script-blocked';
+            this._emitStatus();
+          }
+        });
     }
 
     _bindPeerConn(conn) {
